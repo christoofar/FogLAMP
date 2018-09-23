@@ -228,7 +228,7 @@ class Ingest(object):
                             'to %s', cls._readings_buffer_size,
                             cls._readings_list_size * cls._max_concurrent_readings_inserts)
 
-        cls._write_statistics_task = asyncio.ensure_future(cls._write_statistics())
+        # cls._write_statistics_task = asyncio.ensure_future(cls._write_statistics())
 
         cls._last_insert_time = 0
         cls._insert_readings_wait_tasks = []
@@ -447,6 +447,7 @@ class Ingest(object):
                         break
 
             del readings_list[:batch_size]
+            await cls._update_statistics()
 
             if not cls._readings_lists_not_full.is_set():
                 cls._readings_lists_not_full.set()
@@ -455,6 +456,51 @@ class Ingest(object):
             # _LOGGER.debug('Inserted %s records + stat in time %s', batch_size, insert_end_time - insert_start_time)
 
         _LOGGER.info('Insert readings loop stopped')
+
+    @classmethod
+    async def _update_statistics(cls):
+        """Periodically commits collected readings statistics"""
+        _LOGGER.info('Started statistics writer')
+
+        stats = await statistics.create_statistics(cls.storage_async)
+
+        # Register static statistics
+        await stats.register('READINGS', 'Readings received by FogLAMP')
+        await stats.register('DISCARDED', 'Readings discarded at the input side by FogLAMP, i.e. '
+                                          'discarded before being  placed in the buffer. This may be due to some '
+                                          'error in the readings themselves.')
+        readings = cls._readings_stats
+        cls._readings_stats -= readings
+
+        try:
+            await stats.update('READINGS', readings)
+        except Exception as ex:
+            cls._readings_stats += readings
+            _LOGGER.exception('An error occurred while writing readings statistics, %s', str(ex))
+
+        readings = cls._discarded_readings_stats
+        cls._discarded_readings_stats -= readings
+
+        try:
+            await stats.update('DISCARDED', readings)
+        except Exception as ex:
+            cls._discarded_readings_stats += readings
+            _LOGGER.exception('An error occurred while writing discarded statistics, Error: %s', str(ex))
+
+        """ Register the statistics keys as this may be the first time the key has come into existence """
+        readings = cls._sensor_stats.copy()
+        for key in readings:
+            description = 'Readings received by FogLAMP since startup for sensor {}'.format(key)
+            await stats.register(key, description)
+            cls._sensor_stats[key] -= readings[key]
+        try:
+            await stats.add_update(readings)
+        except Exception as ex:
+            for key in readings:
+                cls._sensor_stats[key] += readings[key]
+            _LOGGER.exception('An error occurred while writing sensor statistics, Error: %s', str(ex))
+
+        _LOGGER.info('Stopped statistics writer')
 
     @classmethod
     async def _write_statistics(cls):
