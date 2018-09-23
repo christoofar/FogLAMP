@@ -400,9 +400,25 @@ class Ingest(object):
                     # _LOGGER.debug('Begin insert: Queue index: %s Batch size: %s', list_index, batch_size)
                     try:
                         await cls.readings_storage_async.append(json.dumps(payload))
+                        # Increment the count of received readings to be used for statistics update
                         cls._readings_stats += batch_size
                         # insert_end_time = time.time()
                         # _LOGGER.debug('Inserted %s records in time %s', batch_size, insert_end_time - insert_start_time)
+                        for i in payload['readings']:
+                            asset = i['asset_code']
+                            try:
+                                cls._sensor_stats[asset.upper()] += 1
+                            except KeyError:
+                                cls._sensor_stats[asset.upper()] = 1
+                            try:
+                                # asset tracker checking
+                                payload = {"asset": asset, "event": "Ingest", "service": cls._parent_service._name,
+                                           "plugin": cls._parent_service._plugin_handle['plugin']['value']
+                                }
+                                assert payload in cls._payload_events
+                            except:
+                                cls._parent_service._core_microservice_management_client.create_asset_tracker_event(payload)
+                                cls._payload_events.append(payload)
                     except StorageServerError as ex:
                         err_response = ex.error
                         # if key error in next, it will be automatically in parent except block
@@ -452,14 +468,12 @@ class Ingest(object):
         await stats.register('DISCARDED', 'Readings discarded at the input side by FogLAMP, i.e. '
                                           'discarded before being  placed in the buffer. This may be due to some '
                                           'error in the readings themselves.')
-
         while True:
             # stop() calls _write_statistics_sleep_task.cancel().
             # Tracking _write_statistics_sleep_task separately is cleaner than canceling
             # this entire coroutine because allowing storage activity to be
             # interrupted will result in strange behavior.
-            cls._write_statistics_sleep_task = asyncio.ensure_future(
-                asyncio.sleep(cls._write_statistics_frequency_seconds))
+            cls._write_statistics_sleep_task = asyncio.ensure_future(asyncio.sleep(cls._write_statistics_frequency_seconds))
 
             try:
                 await cls._write_statistics_sleep_task
@@ -492,7 +506,7 @@ class Ingest(object):
                 _LOGGER.exception('An error occurred while writing discarded statistics, Error: %s', str(ex))
 
             """ Register the statistics keys as this may be the first time the key has come into existence """
-            readings = copy(cls._sensor_stats)
+            readings = cls._sensor_stats.copy()
             for key in readings:
                 description = 'Readings received by FogLAMP since startup for sensor {}'.format(key)
                 await stats.register(key, description)
@@ -503,9 +517,6 @@ class Ingest(object):
                 for key in readings:
                     cls._sensor_stats[key] += readings[key]
                 _LOGGER.exception('An error occurred while writing sensor statistics, Error: %s', str(ex))
-
-            if cls._stop:
-                break
 
         _LOGGER.info('Stopped statistics writer')
 
@@ -592,17 +603,20 @@ class Ingest(object):
             read['user_ts'] = timestamp
             readings_list.append(read)
 
-            # Increment the count of received readings to be used for statistics update
-            if asset.upper() in cls._sensor_stats:
-                cls._sensor_stats[asset.upper()] += 1
-            else:
-                cls._sensor_stats[asset.upper()] = 1
-
+            # # Increment the count of received readings to be used for statistics update
+            # if asset.upper() in cls._sensor_stats:
+            #     cls._sensor_stats[asset.upper()] += 1
+            # else:
+            #     cls._sensor_stats[asset.upper()] = 1
+            #
             # # asset tracker checking
-            # payload = {"asset": asset, "event": "Ingest", "service": cls._parent_service._name,
-            #            "plugin": cls._parent_service._plugin_handle['plugin']['value']}
+            # payload = {"asset": asset,
+            #            "event": "Ingest",
+            #            "service": cls._parent_service._name,
+            #            "plugin": cls._parent_service._plugin_handle['plugin']['value']
+            # }
             # if payload not in cls._payload_events:
-            #     cls._parent_service._core_microservice_management_client.create_asset_tracker_event(payload)
+            #     response = cls._parent_service._core_microservice_management_client.create_asset_tracker_event(payload)
             #     cls._payload_events.append(payload)
 
             list_size = len(readings_list)
