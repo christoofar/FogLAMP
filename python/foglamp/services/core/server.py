@@ -738,14 +738,7 @@ class Server:
                     continue
                 if fs._status not in [ServiceRecord.Status.Running, ServiceRecord.Status.Unresponsive]:
                     continue
-                services_to_stop.append(fs)
-
-            if len(services_to_stop) == 0:
-                _logger.info("No service found except the core, and(or) storage.")
-                return
-
-            tasks = [cls._request_microservice_shutdown(svc) for svc in services_to_stop]
-            await asyncio.wait(tasks)
+                await cls._request_microservice_shutdown(fs)
         except service_registry_exceptions.DoesNotExist:
             pass
         except Exception as ex:
