@@ -133,7 +133,7 @@ class Server(FoglampMicroservice):
                 raise exceptions.InvalidPluginTypeError()
 
             self._plugin_handle = self._plugin.plugin_init(config)
-            await Ingest.start(self)
+            await Ingest.start(self, config)
 
             # Executes the requested plugin type
             if self._plugin_info['mode'] == 'async':
