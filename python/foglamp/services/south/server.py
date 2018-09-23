@@ -58,6 +58,8 @@ class Server(FoglampMicroservice):
 
     _task_main = None
 
+    plugin_module_name = None
+
     def __init__(self):
         super().__init__()
 
@@ -78,7 +80,7 @@ class Server(FoglampMicroservice):
             config = self._core_microservice_management_client.get_configuration_category(category_name=category)
 
             try:
-                plugin_module_name = config['plugin']['value']
+                self.plugin_module_name = config['plugin']['value']
             except KeyError:
                 message = self._MESSAGES_LIST['e000002'].format(self._name)
                 _LOGGER.error(message)
@@ -86,11 +88,11 @@ class Server(FoglampMicroservice):
 
             try:
                 import_file_name = "{path}.{dir}.{file}".format(path=self._PLUGIN_MODULE_PATH,
-                                                                dir=plugin_module_name,
-                                                                file=plugin_module_name)
+                                                                dir=self.plugin_module_name,
+                                                                file=self.plugin_module_name)
                 self._plugin = __import__(import_file_name, fromlist=[''])
             except Exception as ex:
-                message = self._MESSAGES_LIST['e000003'].format(plugin_module_name, self._name, str(ex))
+                message = self._MESSAGES_LIST['e000003'].format(self.plugin_module_name, self._name, str(ex))
                 _LOGGER.error(message)
                 raise
             # Create the parent category for all south service

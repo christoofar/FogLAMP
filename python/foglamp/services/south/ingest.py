@@ -43,6 +43,8 @@ class Ingest(object):
     readings_storage_async = None  # type: Readings
     storage_async = None  # type: Storage
 
+    stats = None
+
     _readings_stats = 0  # type: int
     """Number of readings accepted before statistics were written to storage"""
 
@@ -229,6 +231,13 @@ class Ingest(object):
                             cls._readings_list_size * cls._max_concurrent_readings_inserts)
 
         # cls._write_statistics_task = asyncio.ensure_future(cls._write_statistics())
+        cls.stats = await statistics.create_statistics(cls.storage_async)
+
+        # Register static statistics
+        await cls.stats.register('READINGS', 'Readings received by FogLAMP')
+        await cls.stats.register('DISCARDED', 'Readings discarded at the input side by FogLAMP, i.e. '
+                                          'discarded before being  placed in the buffer. This may be due to some '
+                                          'error in the readings themselves.')
 
         cls._last_insert_time = 0
         cls._insert_readings_wait_tasks = []
@@ -407,13 +416,14 @@ class Ingest(object):
                         for i in payload['readings']:
                             asset = i['asset_code']
                             try:
+                                assert asset.upper() in cls._sensor_stats
                                 cls._sensor_stats[asset.upper()] += 1
-                            except KeyError:
+                            except:
                                 cls._sensor_stats[asset.upper()] = 1
                             try:
                                 # asset tracker checking
                                 payload = {"asset": asset, "event": "Ingest", "service": cls._parent_service._name,
-                                           "plugin": cls._parent_service._plugin_handle['plugin']['value']
+                                           "plugin": cls._parent_service.plugin_module_name
                                 }
                                 assert payload in cls._payload_events
                             except:
@@ -462,42 +472,35 @@ class Ingest(object):
         """Periodically commits collected readings statistics"""
         _LOGGER.info('Started statistics writer')
 
-        stats = await statistics.create_statistics(cls.storage_async)
-
-        # Register static statistics
-        await stats.register('READINGS', 'Readings received by FogLAMP')
-        await stats.register('DISCARDED', 'Readings discarded at the input side by FogLAMP, i.e. '
-                                          'discarded before being  placed in the buffer. This may be due to some '
-                                          'error in the readings themselves.')
         readings = cls._readings_stats
         cls._readings_stats -= readings
 
         try:
-            await stats.update('READINGS', readings)
+            await cls.stats.update('READINGS', readings)
         except Exception as ex:
             cls._readings_stats += readings
             _LOGGER.exception('An error occurred while writing readings statistics, %s', str(ex))
 
-        readings = cls._discarded_readings_stats
-        cls._discarded_readings_stats -= readings
+        readings_discarded = cls._discarded_readings_stats
+        cls._discarded_readings_stats -= readings_discarded
 
         try:
-            await stats.update('DISCARDED', readings)
+            await cls.stats.update('DISCARDED', readings_discarded)
         except Exception as ex:
-            cls._discarded_readings_stats += readings
+            cls._discarded_readings_stats += readings_discarded
             _LOGGER.exception('An error occurred while writing discarded statistics, Error: %s', str(ex))
 
         """ Register the statistics keys as this may be the first time the key has come into existence """
-        readings = cls._sensor_stats.copy()
-        for key in readings:
+        readings_sensors = cls._sensor_stats.copy()
+        for key in readings_sensors:
             description = 'Readings received by FogLAMP since startup for sensor {}'.format(key)
-            await stats.register(key, description)
-            cls._sensor_stats[key] -= readings[key]
+            await cls.stats.register(key, description)
+            cls._sensor_stats[key] -= readings_sensors[key]
         try:
-            await stats.add_update(readings)
+            await cls.stats.add_update(readings_sensors)
         except Exception as ex:
-            for key in readings:
-                cls._sensor_stats[key] += readings[key]
+            for key in readings_sensors:
+                cls._sensor_stats[key] += readings_sensors[key]
             _LOGGER.exception('An error occurred while writing sensor statistics, Error: %s', str(ex))
 
         _LOGGER.info('Stopped statistics writer')
