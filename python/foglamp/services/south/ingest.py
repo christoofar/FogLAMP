@@ -354,23 +354,9 @@ class Ingest(object):
                     # _LOGGER.debug('Begin insert: Queue index: %s Batch size: %s', list_index, batch_size)
                     try:
                         await cls.readings_storage_async.append(json.dumps(payload))
+                        cls._readings_stats += batch_size
                         # insert_end_time = time.time()
                         # _LOGGER.debug('Inserted %s records in time %s', batch_size, insert_end_time - insert_start_time)
-                        cls._readings_stats += batch_size
-                        for reading_item in payload['readings']:
-                            # Increment the count of received readings to be used for statistics update
-                            try:
-                                cls._sensor_stats[reading_item['asset_code'].upper()] += 1
-                            except KeyError:
-                                cls._sensor_stats[reading_item['asset_code'].upper()] = 1
-
-                            # # asset tracker checking
-                            # payload = {"asset": reading_item['asset_code'], "event": "Ingest", "service": cls._parent_service._name,
-                            #            "plugin": cls._parent_service._plugin_handle['plugin']['value']}
-                            # if payload not in cls._payload_events:
-                            #     cls._parent_service._core_microservice_management_client.create_asset_tracker_event(payload)
-                            #     cls._payload_events.append(payload)
-
                     except StorageServerError as ex:
                         err_response = ex.error
                         # if key error in next, it will be automatically in parent except block
@@ -421,8 +407,6 @@ class Ingest(object):
                                           'error in the readings themselves.')
 
         while True:
-            await asyncio.sleep(cls._write_statistics_frequency_seconds)
-
             readings = cls._readings_stats
             cls._readings_stats -= readings
 
@@ -455,7 +439,12 @@ class Ingest(object):
                 _LOGGER.exception('An error occurred while writing sensor statistics, Error: %s', str(ex))
 
             if cls._stop:
-                break
+                if cls._readings_stats+cls._discarded_readings_stats == 0:
+                    break
+                else:
+                    continue
+            await asyncio.sleep(cls._write_statistics_frequency_seconds)
+
 
     @classmethod
     def is_available(cls) -> bool:
@@ -562,8 +551,21 @@ class Ingest(object):
             read['read_key'] = str(key)
             read['reading'] = readings
             read['user_ts'] = timestamp
-
             readings_list.append(read)
+
+            # Increment the count of received readings to be used for statistics update
+            try:
+                cls._sensor_stats[asset.upper()] += 1
+            except KeyError:
+                cls._sensor_stats[asset.upper()] = 1
+
+            # asset tracker checking
+            payload = {"asset": asset, "event": "Ingest", "service": cls._parent_service._name,
+                       "plugin": cls._parent_service._plugin_handle['plugin']['value']}
+            if payload not in cls._payload_events:
+                cls._parent_service._core_microservice_management_client.create_asset_tracker_event(payload)
+                cls._payload_events.append(payload)
+
             list_size = len(readings_list)
 
             # _LOGGER.debug('Add readings list index: %s size: %s', cls._current_readings_list_index, list_size)
