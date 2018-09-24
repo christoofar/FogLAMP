@@ -383,7 +383,7 @@ uint32_t OMF::sendToServer(const vector<Reading *>& readings,
 	try
 	{
 		std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
-		int res = m_sender.sendRequest("POST", m_path, readingData, jsonOut);
+		int res = m_sender.sendRequest("POST", m_path, readingData, jsonCompr);
 		//int res = m_sender.sendRequest("POST", m_path, readingData, tempss.str());
 		std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
 		auto usecs = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
