@@ -357,14 +357,14 @@ static void sendDataThread(SendingProcess *sendData)
 			 */
 
 			const vector<Reading *> &readingData = sendData->m_buffer.at(sendIdx)->getAllReadings();
-			high_resolution_clock::time_point t1 = high_resolution_clock::now();
+			//high_resolution_clock::time_point t1 = high_resolution_clock::now();
 
 			uint32_t sentReadings = sendData->m_plugin->send(readingData);
 
 			if (sentReadings)
 			{
-				high_resolution_clock::time_point t2 = high_resolution_clock::now();
-				auto usecs = duration_cast<microseconds>( t2 - t1 ).count();
+				//high_resolution_clock::time_point t2 = high_resolution_clock::now();
+				//auto usecs = duration_cast<microseconds>( t2 - t1 ).count();
 				//Logger::getLogger()->info("sendDataThread(): time taken=%lld usecs", usecs);
 				
 				/** Sending done */
