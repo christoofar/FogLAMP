@@ -10,9 +10,11 @@
 
 
 #include <iostream>
+#include <fstream>
 #include <string>
-#include <chrono>
 #include <cstring>
+#include <chrono>
+#include <thread>
 #include <omf.h>
 #include <logger.h>
 #include <zlib.h>
@@ -75,7 +77,7 @@ OMF::OMF(HttpSender& sender,
 	 m_path(path),
 	 m_typeId(id),
 	 m_producerToken(token),
-         m_sender(sender)
+	 m_sender(sender)
 {
 	m_lastError = false;
 	m_readings = 0;
@@ -89,6 +91,98 @@ OMF::~OMF()
 	Logger::getLogger()->info("Total %lld readings sent to PI server in %lld usecs, amortized readings' loop time = %lld usec/reading", m_readings, m_loopUsecs, m_loopUsecs/m_readings);
 	Logger::getLogger()->info("Total %lld readings sent to PI server in %lld usecs, amortized request->response time = %lld usec/reading", m_readings, m_usecs, m_usecs/m_readings);
 }
+
+#if 1
+const int windowBits = 15;
+const int GZIP_ENCODING = 16;
+
+/** Compress a STL string using zlib with given compression level and return
+  * the binary data. */
+std::string OMF::compress_string(const std::string& str,
+                            int compressionlevel)
+{
+    z_stream zs;                        // z_stream is zlib's control structure
+    memset(&zs, 0, sizeof(zs));
+
+    if (deflateInit2(&zs, compressionlevel, Z_DEFLATED,
+		 windowBits | GZIP_ENCODING, 8,
+		 Z_DEFAULT_STRATEGY) != Z_OK)
+        throw(std::runtime_error("deflateInit failed while compressing."));
+
+    zs.next_in = (Bytef*)str.data();
+    zs.avail_in = str.size();           // set the z_stream's input
+
+    int ret;
+    char outbuffer[32768];
+    std::string outstring;
+
+    // retrieve the compressed bytes blockwise
+    do {
+        zs.next_out = reinterpret_cast<Bytef*>(outbuffer);
+        zs.avail_out = sizeof(outbuffer);
+
+        ret = deflate(&zs, Z_FINISH);
+
+        if (outstring.size() < zs.total_out) {
+            // append the block to the output string
+            outstring.append(outbuffer,
+                             zs.total_out - outstring.size());
+        }
+    } while (ret == Z_OK);
+
+    deflateEnd(&zs);
+
+    if (ret != Z_STREAM_END) {          // an error occurred that was not EOF
+        std::ostringstream oss;
+        oss << "Exception during zlib compression: (" << ret << ") " << zs.msg;
+        throw(std::runtime_error(oss.str()));
+    }
+
+    return outstring;
+}
+
+/** Decompress an STL string using zlib and return the original data. */
+std::string OMF::decompress_string(const std::string& str)
+{
+    z_stream zs;                        // z_stream is zlib's control structure
+    memset(&zs, 0, sizeof(zs));
+
+    if (inflateInit(&zs) != Z_OK)
+        throw(std::runtime_error("inflateInit failed while decompressing."));
+
+    zs.next_in = (Bytef*)str.data();
+    zs.avail_in = str.size();
+
+    int ret;
+    char outbuffer[32768];
+    std::string outstring;
+
+    // get the decompressed bytes blockwise using repeated calls to inflate
+    do {
+        zs.next_out = reinterpret_cast<Bytef*>(outbuffer);
+        zs.avail_out = sizeof(outbuffer);
+
+        ret = inflate(&zs, 0);
+
+        if (outstring.size() < zs.total_out) {
+            outstring.append(outbuffer,
+                             zs.total_out - outstring.size());
+        }
+
+    } while (ret == Z_OK);
+
+    inflateEnd(&zs);
+
+    if (ret != Z_STREAM_END) {          // an error occurred that was not EOF
+        std::ostringstream oss;
+        oss << "Exception during zlib decompression: (" << ret << ") "
+            << zs.msg;
+        throw(std::runtime_error(oss.str()));
+    }
+
+    return outstring;
+}
+#endif
 
 /**
  * Sends all the data type messages for a Reading data row
@@ -273,7 +367,7 @@ uint32_t OMF::sendToServer(const vector<Reading *>& readings,
 	Logger::getLogger()->info("OMF::sendToServer(): OMF payload compression: time taken=%lld usecs for %d readings", usecs2, readings.size());
 #endif
 	/**
-	 * Types messages sent, now transorm ech reading to OMF format.
+	 * Types messages sent, now transorm each reading to OMF format.
 	 *
 	 * After formatting the new vector of data can be sent
 	 * with one message only
@@ -289,7 +383,8 @@ uint32_t OMF::sendToServer(const vector<Reading *>& readings,
 	try
 	{
 		std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
-		int res = m_sender.sendRequest("POST", m_path, readingData, jsonCompr);
+		int res = m_sender.sendRequest("POST", m_path, readingData, jsonOut);
+		//int res = m_sender.sendRequest("POST", m_path, readingData, tempss.str());
 		std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
 		auto usecs = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
 		//Logger::getLogger()->info("OMF::sendToServer(): HTTP sender request took %lld usecs for a buffer size of %d bytes", usecs, jsonData.str().size());
@@ -307,7 +402,7 @@ uint32_t OMF::sendToServer(const vector<Reading *>& readings,
 
 		m_lastError = false;
 
-		// Return number of sen t readings to the caller
+		// Return number of sent readings to the caller
 		return readings.size();
 	}
 	catch (const std::exception& e)
@@ -437,97 +532,6 @@ uint32_t OMF::sendToServer(const Reading* reading,
 	return 1;
 }
 
-// deflateInit2 configure the file format: request gzip
-const int windowBits = 15;
-const int GZIP_ENCODING = 16;
-
-/** Compress a STL string using zlib with given compression level and return
-  * the binary data. */
-std::string OMF::compress_string(const std::string& str, int compressionlevel)
-{
-    z_stream zs;                        // z_stream is zlib's control structure
-    memset(&zs, 0, sizeof(zs));
-
-    if (deflateInit2(&zs, compressionlevel, Z_DEFLATED,
-		 windowBits | GZIP_ENCODING, 8,
-		 Z_DEFAULT_STRATEGY) != Z_OK)
-        throw(std::runtime_error("deflateInit failed while compressing."));
-
-    zs.next_in = (Bytef*)str.data();
-    zs.avail_in = str.size();           // set the z_stream's input
-
-    int ret;
-    char outbuffer[32768];
-    std::string outstring;
-
-    // retrieve the compressed bytes blockwise
-    do {
-        zs.next_out = reinterpret_cast<Bytef*>(outbuffer);
-        zs.avail_out = sizeof(outbuffer);
-
-        ret = deflate(&zs, Z_FINISH);
-
-        if (outstring.size() < zs.total_out) {
-            // append the block to the output string
-            outstring.append(outbuffer,
-                             zs.total_out - outstring.size());
-        }
-    } while (ret == Z_OK);
-
-    deflateEnd(&zs);
-
-    if (ret != Z_STREAM_END) {          // an error occurred that was not EOF
-        std::ostringstream oss;
-        oss << "Exception during zlib compression: (" << ret << ") " << zs.msg;
-        throw(std::runtime_error(oss.str()));
-    }
-
-    return outstring;
-}
-
-/** Decompress an STL string using zlib and return the original data. */
-std::string OMF::decompress_string(const std::string& str)
-{
-    z_stream zs;                        // z_stream is zlib's control structure
-    memset(&zs, 0, sizeof(zs));
-
-    if (inflateInit(&zs) != Z_OK)
-        throw(std::runtime_error("inflateInit failed while decompressing."));
-
-    zs.next_in = (Bytef*)str.data();
-    zs.avail_in = str.size();
-
-    int ret;
-    char outbuffer[32768];
-    std::string outstring;
-
-    // get the decompressed bytes blockwise using repeated calls to inflate
-    do {
-        zs.next_out = reinterpret_cast<Bytef*>(outbuffer);
-        zs.avail_out = sizeof(outbuffer);
-
-        ret = inflate(&zs, 0);
-
-        if (outstring.size() < zs.total_out) {
-            outstring.append(outbuffer,
-                             zs.total_out - outstring.size());
-        }
-
-    } while (ret == Z_OK);
-
-    inflateEnd(&zs);
-
-    if (ret != Z_STREAM_END) {          // an error occurred that was not EOF
-        std::ostringstream oss;
-        oss << "Exception during zlib decompression: (" << ret << ") "
-            << zs.msg;
-        throw(std::runtime_error(oss.str()));
-    }
-
-    return outstring;
-}
-
-
 /**
  * Creates a vector of HTTP header to be sent to Server
  *
@@ -544,7 +548,8 @@ const vector<pair<string, string>> OMF::createMessageHeader(const std::string& t
 	res.push_back(pair<string, string>("messageformat", "JSON"));
 	res.push_back(pair<string, string>("action", "create"));
 	//res.push_back(pair<string, string>("compression", "gzip"));
-	
+	//res.push_back(pair<string, string>("Transfer-Encoding", "gzip"));
+
 	return  res; 
 }
 

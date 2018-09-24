@@ -219,11 +219,10 @@ void SouthService::start(string& coreAddress, unsigned short corePort)
 			{
 				std::this_thread::sleep_for(std::chrono::milliseconds(m_pollInterval));
 				for (int i=0; i<18; i++)
-					{
+				{
 					Reading reading = southPlugin->poll();
 					ingest.ingest(reading);
-					//logger->info("reading->toJSON='%s'", reading.toJSON().c_str());
-					}
+				}
 			}
 		}
 		else

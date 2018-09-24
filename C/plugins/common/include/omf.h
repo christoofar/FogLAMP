@@ -73,13 +73,10 @@ class OMF
 		// Get saved OMF formats
 		std::string getFormatType(const std::string &key) const;
 
-		void compress_memory(void *in_data, size_t in_data_size, std::vector<uint8_t> &out_data);
-		
 		std::string compress_string(const std::string& str,
-                            int compressionlevel = Z_DEFAULT_COMPRESSION);
-		
+                            				int compressionlevel = Z_DEFAULT_COMPRESSION);
+
 		std::string decompress_string(const std::string& str);
-		
 
 	private:
 		/**

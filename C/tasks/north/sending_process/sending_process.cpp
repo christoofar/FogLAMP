@@ -196,8 +196,7 @@ static void loadDataThread(SendingProcess *loadData)
 												      qStatistics);
 				}
 				//high_resolution_clock::time_point t2 = high_resolution_clock::now();
-				//auto usecs = duration_cast<microseconds>( t2 - t1 ).count();
-				//Logger::getLogger()->info("loadDataThread(): isReading=%s, time taken=%lld usecs", isReading?"true":"false", usecs);
+				//auto duration = duration_cast<microseconds>( t2 - t1 ).count();
 			}
 			catch (ReadingSetException* e)
 			{
