@@ -78,11 +78,16 @@ OMF::OMF(HttpSender& sender,
          m_sender(sender)
 {
 	m_lastError = false;
+	m_readings = 0;
+	m_usecs = 0;
+	m_loopUsecs = 0;
 }
 
 // Destructor
 OMF::~OMF()
 {
+	Logger::getLogger()->info("Total %lld readings sent to PI server in %lld usecs, amortized readings' loop time = %lld usec/reading", m_readings, m_loopUsecs, m_loopUsecs/m_readings);
+	Logger::getLogger()->info("Total %lld readings sent to PI server in %lld usecs, amortized request->response time = %lld usec/reading", m_readings, m_usecs, m_usecs/m_readings);
 }
 
 /**
@@ -255,16 +260,18 @@ uint32_t OMF::sendToServer(const vector<Reading *>& readings,
 
 	jsonData << "]";
 
+#if 1
 	std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
 	auto usecs = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
-	Logger::getLogger()->info("OMF::sendToServer(): OMF formatting in Readings' loop: time taken=%lld usecs for %d readings", usecs, readings.size());
-
+	m_loopUsecs += usecs;
+	//Logger::getLogger()->info("OMF::sendToServer(): OMF formatting in Readings' loop: time taken=%lld usecs for %d readings", usecs, readings.size());
+#endif
 	string jsonCompr = compress_string(jsonData.str());
-
+#if 0
 	std::chrono::high_resolution_clock::time_point t3 = std::chrono::high_resolution_clock::now();
 	auto usecs2 = std::chrono::duration_cast<std::chrono::microseconds>( t3 - t2 ).count();
 	Logger::getLogger()->info("OMF::sendToServer(): OMF payload compression: time taken=%lld usecs for %d readings", usecs2, readings.size());
-
+#endif
 	/**
 	 * Types messages sent, now transorm ech reading to OMF format.
 	 *
@@ -286,9 +293,11 @@ uint32_t OMF::sendToServer(const vector<Reading *>& readings,
 		std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
 		auto usecs = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
 		//Logger::getLogger()->info("OMF::sendToServer(): HTTP sender request took %lld usecs for a buffer size of %d bytes", usecs, jsonData.str().size());
-		Logger::getLogger()->info("OMF::sendToServer(): HTTP request->response took %lld usecs for %d readings, buffer size of %d bytes (compressed) (= %d bytes uncompressed)", 
-									usecs, readings.size(), jsonCompr.size(), jsonData.str().size());
-	
+		Logger::getLogger()->info("OMF::sendToServer(): HTTP request->response took %lld usecs for %d readings, buffer size of %d bytes (compressed) (= %d bytes uncompressed), %lld usecs/reading", 
+									usecs, readings.size(), jsonCompr.size(), jsonData.str().size(), usecs/readings.size());
+		m_readings += readings.size();
+		m_usecs += usecs;
+
 		if (res != 200 && res != 204)
 		{
 			Logger::getLogger()->error("Sending JSON readings data error: %d", res);

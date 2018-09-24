@@ -130,8 +130,8 @@ ostringstream convert;
  */
 const string Reading::getAssetDateTime(readingTimeFormat dateFormat, bool addMS) const
 {
-char date_time[DATE_TIME_BUFFER_LEN];
-char micro_s[10];
+char date_time[DATE_TIME_BUFFER_LEN] = {0};
+char micro_s[10] = {0};
 ostringstream assetTime;
 
         // Populate tm structure

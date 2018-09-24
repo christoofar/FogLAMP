@@ -151,7 +151,7 @@ ReadingSet *StorageClient::readingFetch(const unsigned long readingId, const uns
 		snprintf(url, sizeof(url), "/storage/reading?id=%ld&count=%ld",
 				readingId, count);
 		auto res = m_client->request("GET", url);
-		if (res->status_code.compare("200 OK") == 0)
+		if (res && res->status_code.compare("200 OK") == 0)
 		{
 			ostringstream resultPayload;
 			resultPayload << res->content.rdbuf();
@@ -378,7 +378,7 @@ int StorageClient::updateTable(const string& tableName, const InsertValues& valu
 		char url[128];
 		snprintf(url, sizeof(url), "/storage/table/%s", tableName.c_str());
 		auto res = m_client->request("PUT", url, convert.str());
-		if (res->status_code.compare("200 OK") == 0)
+		if (res && res->status_code.compare("200 OK") == 0)
 		{
 			ostringstream resultPayload;
 			resultPayload << res->content.rdbuf();
@@ -430,7 +430,7 @@ int StorageClient::updateTable(const string& tableName, const ExpressionValues& 
 		char url[128];
 		snprintf(url, sizeof(url), "/storage/table/%s", tableName.c_str());
 		auto res = m_client->request("PUT", url, convert.str());
-		if (res->status_code.compare("200 OK") == 0)
+		if (res && res->status_code.compare("200 OK") == 0)
 		{
 			ostringstream resultPayload;
 			resultPayload << res->content.rdbuf();
@@ -451,9 +451,12 @@ int StorageClient::updateTable(const string& tableName, const ExpressionValues& 
 			}
 			return doc["rows_affected"].GetInt();
 		}
-		ostringstream resultPayload;
-		resultPayload << res->content.rdbuf();
-		handleUnexpectedResponse("Update table", res->status_code, resultPayload.str());
+		if (res)
+		{
+			ostringstream resultPayload;
+			resultPayload << res->content.rdbuf();
+			handleUnexpectedResponse("Update table", res->status_code, resultPayload.str());
+		}
 	} catch (exception& ex) {
 		m_logger->error("Failed to update table %s: %s", tableName.c_str(), ex.what());
 		throw;
@@ -486,7 +489,7 @@ int StorageClient::updateTable(const string& tableName, const InsertValues& valu
 		char url[128];
 		snprintf(url, sizeof(url), "/storage/table/%s", tableName.c_str());
 		auto res = m_client->request("PUT", url, convert.str());
-		if (res->status_code.compare("200 OK") == 0)
+		if (res && res->status_code.compare("200 OK") == 0)
 		{
 			ostringstream resultPayload;
 			resultPayload << res->content.rdbuf();
@@ -538,7 +541,7 @@ int StorageClient::updateTable(const string& tableName, const JSONProperties& va
 		char url[128];
 		snprintf(url, sizeof(url), "/storage/table/%s", tableName.c_str());
 		auto res = m_client->request("PUT", url, convert.str());
-		if (res->status_code.compare("200 OK") == 0)
+		if (res && res->status_code.compare("200 OK") == 0)
 		{
 			ostringstream resultPayload;
 			resultPayload << res->content.rdbuf();
@@ -593,7 +596,7 @@ int StorageClient::updateTable(const string& tableName, const InsertValues& valu
 		char url[128];
 		snprintf(url, sizeof(url), "/storage/table/%s", tableName.c_str());
 		auto res = m_client->request("PUT", url, convert.str());
-		if (res->status_code.compare("200 OK") == 0)
+		if (res && res->status_code.compare("200 OK") == 0)
 		{
 			ostringstream resultPayload;
 			resultPayload << res->content.rdbuf();
