@@ -12,7 +12,6 @@ import time
 import uuid
 from typing import List, Union
 import json
-import copy
 from foglamp.common import logger
 from foglamp.common import statistics
 from foglamp.common.storage_client.exceptions import StorageServerError
@@ -116,6 +115,7 @@ class Ingest(object):
     _payload_events = []
     """The list of unique reading payload for asset tracker"""
 
+    stats = None
     # Configuration (end)
 
     @classmethod
@@ -130,7 +130,8 @@ class Ingest(object):
                 "description": "Seconds to wait before writing readings-related "
                                "statistics to storage",
                 "type": "integer",
-                "default": str(cls._write_statistics_frequency_seconds)
+                "default": str(cls._write_statistics_frequency_seconds),
+                "minimum": "5"
             },
             "readings_buffer_size": {
                 "description": "Maximum number of readings to buffer in memory",
@@ -217,6 +218,8 @@ class Ingest(object):
         # and cannot be a any value other than non zero integers.
         cls._readings_insert_batch_size = 1024 if not cls._readings_insert_batch_size else cls._readings_insert_batch_size
         cls._max_concurrent_readings_inserts = 4 if not cls._max_concurrent_readings_inserts else cls._max_concurrent_readings_inserts
+        cls._write_statistics_frequency_seconds = 5 if (not cls._write_statistics_frequency_seconds or
+                                                        cls._write_statistics_frequency_seconds <= 0) else cls._write_statistics_frequency_seconds
 
         cls._readings_list_size = int(cls._readings_buffer_size / (
             cls._max_concurrent_readings_inserts))
@@ -230,6 +233,18 @@ class Ingest(object):
             _LOGGER.warning('Readings buffer size as configured (%s) is too small; increasing '
                             'to %s', cls._readings_buffer_size,
                             cls._readings_list_size * cls._max_concurrent_readings_inserts)
+
+
+        cls.stats = await statistics.create_statistics(cls.storage_async)
+
+        # Register static statistics
+        await cls.stats.register('READINGS', 'Readings received by FogLAMP')
+        await cls.stats.register('DISCARDED', 'Readings discarded at the input side by FogLAMP, i.e. '
+                                          'discarded before being  placed in the buffer. This may be due to some '
+                                          'error in the readings themselves.')
+
+        # Start asyncio tasks
+        cls._write_statistics_task = asyncio.ensure_future(cls._write_statistics())
 
         cls._last_insert_time = 0
         cls._insert_readings_wait_tasks = []
@@ -279,6 +294,17 @@ class Ingest(object):
         cls._readings_list_batch_size_reached = None
         cls._readings_list_not_empty = None
         cls._readings_lists_not_full = None
+
+        # Write statistics
+        if cls._write_statistics_sleep_task is not None:
+            cls._write_statistics_sleep_task.cancel()
+            cls._write_statistics_sleep_task = None
+
+        try:
+            await cls._write_statistics_task
+            cls._write_statistics_task = None
+        except Exception:
+            _LOGGER.exception('An exception was raised by Ingest._write_statistics')
 
         cls._started = False
 
@@ -390,8 +416,6 @@ class Ingest(object):
                         _LOGGER.warning('Insert failed: Queue index: %s Batch size: %s', list_index, batch_size)
                         break
 
-            await cls._write_statistics()
-
             del readings_list[:batch_size]
 
             if not lists_not_full.is_set():
@@ -405,45 +429,62 @@ class Ingest(object):
     @classmethod
     async def _write_statistics(cls):
         """Periodically commits collected readings statistics"""
+        _LOGGER.info('South statistics writer started')
 
-        stats = await statistics.create_statistics(cls.storage_async)
+        while True:
+            # stop() calls _write_statistics_sleep_task.cancel().
+            # Tracking _write_statistics_sleep_task separately is cleaner than canceling
+            # this entire coroutine because allowing storage activity to be
+            # interrupted will result in strange behavior.
+            cls._write_statistics_sleep_task = asyncio.ensure_future(
+                asyncio.sleep(cls._write_statistics_frequency_seconds))
 
-        # Register static statistics
-        await stats.register('READINGS', 'Readings received by FogLAMP')
-        await stats.register('DISCARDED', 'Readings discarded at the input side by FogLAMP, i.e. '
-                                          'discarded before being  placed in the buffer. This may be due to some '
-                                          'error in the readings themselves.')
+            try:
+                await cls._write_statistics_sleep_task
+            except asyncio.CancelledError:
+                pass
+            finally:
+                cls._write_statistics_sleep_task = None
 
-        readings = cls._readings_stats
-        cls._readings_stats = 0
+            if cls._stop:
+                sensors = 0
+                for value in cls._sensor_stats.values():
+                    sensors += value
+                if cls._readings_stats + cls._discarded_readings_stats + sensors == 0:
+                       break
 
-        try:
-            await stats.update('READINGS', readings)
-        except Exception as ex:
-            cls._readings_stats += readings
-            _LOGGER.exception('An error occurred while writing readings statistics, %s', str(ex))
+            readings = cls._readings_stats
+            cls._readings_stats -= readings
 
-        readings = cls._discarded_readings_stats
-        cls._discarded_readings_stats = 0
+            try:
+                await cls.stats.update('READINGS', readings)
+            except Exception as ex:
+                cls._readings_stats += readings
+                _LOGGER.exception('An error occurred while writing readings statistics, %s', str(ex))
 
-        try:
-            await stats.update('DISCARDED', readings)
-        except Exception as ex:
-            cls._discarded_readings_stats += readings
-            _LOGGER.exception('An error occurred while writing discarded statistics, Error: %s', str(ex))
+            readings = cls._discarded_readings_stats
+            cls._discarded_readings_stats -= readings
 
-        """ Register the statistics keys as this may be the first time the key has come into existence """
-        readings = cls._sensor_stats.copy()
-        for key in readings:
-            description = 'Readings received by FogLAMP since startup for sensor {}'.format(key)
-            await stats.register(key, description)
-            cls._sensor_stats[key] -= readings[key]
-        try:
-            await stats.add_update(readings)
-        except Exception as ex:
+            try:
+                await cls.stats.update('DISCARDED', readings)
+            except Exception as ex:
+                cls._discarded_readings_stats += readings
+                _LOGGER.exception('An error occurred while writing discarded statistics, Error: %s', str(ex))
+
+            """ Register the statistics keys as this may be the first time the key has come into existence """
+            readings = cls._sensor_stats.copy()
             for key in readings:
-                cls._sensor_stats[key] += readings[key]
-            _LOGGER.exception('An error occurred while writing sensor statistics, Error: %s', str(ex))
+                description = 'Readings received by FogLAMP since startup for sensor {}'.format(key)
+                await cls.stats.register(key, description)
+                cls._sensor_stats[key] -= readings[key]
+            try:
+                await cls.stats.add_update(readings)
+            except Exception as ex:
+                for key in readings:
+                    cls._sensor_stats[key] += readings[key]
+                _LOGGER.exception('An error occurred while writing sensor statistics, Error: %s', str(ex))
+
+        _LOGGER.info('South statistics writer stopped')
 
     @classmethod
     def is_available(cls) -> bool:
