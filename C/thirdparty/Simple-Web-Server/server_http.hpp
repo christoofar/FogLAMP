@@ -580,17 +580,17 @@ namespace SimpleWeb {
     }
 
     void read(const std::shared_ptr<Session> &session) {
-      Logger::getLogger()->info("server_http.hpp: %s:%d", __FUNCTION__, __LINE__);
+      //Logger::getLogger()->info("server_http.hpp: %s:%d", __FUNCTION__, __LINE__);
 	  session->connection->set_timeout(config.timeout_request);
 	  //printBacktrace();
       asio::async_read_until(*session->connection->socket, session->request->streambuf, "\r\n\r\n", [this, session](const error_code &ec, std::size_t bytes_transferred) {
-      	std::string buff{buffers_begin(session->request->streambuf.data()), buffers_end(session->request->streambuf.data())};
-	  	Logger::getLogger()->info("server_http.hpp: %s:%d: asio::async_write handler(): buffer=%s", __FUNCTION__, __LINE__, buff.c_str());
+      	std::string buff(""); //{buffers_begin(session->request->streambuf.data()), buffers_end(session->request->streambuf.data())};
+	  	//Logger::getLogger()->info("server_http.hpp: %s:%d: asio::async_write handler(): buffer=%s", __FUNCTION__, __LINE__, buff.c_str());
         session->connection->cancel_timeout();
         auto lock = session->connection->handler_runner->continue_lock();
         if(!lock)
           return;
-		if (ec.value()) Logger::getLogger()->info("server_http.hpp: %s:%d: read Handler: ec=%d, %s", __FUNCTION__, __LINE__, ec.value(), ec.message().c_str());
+		//if (ec.value()) Logger::getLogger()->info("server_http.hpp: %s:%d: read Handler: ec=%d, %s", __FUNCTION__, __LINE__, ec.value(), ec.message().c_str());
         session->request->header_read_time = std::chrono::system_clock::now();
         if((!ec || ec == asio::error::not_found) && session->request->streambuf.size() == session->request->streambuf.max_size()) {
           auto response = std::shared_ptr<Response>(new Response(session, this->config.timeout_content));
@@ -625,7 +625,7 @@ namespace SimpleWeb {
                 this->on_error(session->request, make_error_code::make_error_code(errc::protocol_error));
               return;
             }
-			Logger::getLogger()->info("server_http.hpp: %s:%d - content_length=%u, num_additional_bytes=%d, config.timeout_content=%ld", __FUNCTION__, __LINE__, content_length, (int)num_additional_bytes, config.timeout_content);
+			//Logger::getLogger()->info("server_http.hpp: %s:%d - content_length=%u, num_additional_bytes=%d, config.timeout_content=%ld", __FUNCTION__, __LINE__, content_length, (int)num_additional_bytes, config.timeout_content);
             if(content_length > num_additional_bytes) {
               session->connection->set_timeout(config.timeout_content);
               asio::async_read(*session->connection->socket, session->request->streambuf, asio::transfer_exactly(content_length - num_additional_bytes), [this, session](const error_code &ec, std::size_t /*bytes_transferred*/) {
@@ -807,7 +807,7 @@ namespace SimpleWeb {
             if(response->close_connection_after_response)
               return;
 
-			Logger::getLogger()->info("server_http.hpp: %s:%d", __FUNCTION__, __LINE__);
+			//Logger::getLogger()->info("server_http.hpp: %s:%d", __FUNCTION__, __LINE__);
             auto range = response->session->request->header.equal_range("Connection");
             for(auto it = range.first; it != range.second; it++) {
               if(case_insensitive_equal(it->second, "close"))
