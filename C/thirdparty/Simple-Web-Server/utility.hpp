@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <logger.h>
 
 #if __cplusplus > 201402L || (defined(_MSC_VER) && _MSC_VER >= 1910)
 #include <string_view>
@@ -278,6 +279,7 @@ namespace SimpleWeb {
       std::string line;
       std::size_t version_end;
       if(getline(stream, line) && (version_end = line.find(' ')) != std::string::npos) {
+	  	Logger::getLogger()->info("ResponseMessage::parse: line=%s", line.c_str());
         if(5 < line.size())
           version = line.substr(5, version_end - 5);
         else

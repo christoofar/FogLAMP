@@ -83,6 +83,9 @@ HttpClient *StorageClient::getHttpClient(void) {
 		// Adding a new HttpClient
 		client = new HttpClient(m_urlbase.str());
 		m_client_map[thread_id] = client;
+		std::ostringstream ss;
+		ss << std::this_thread::get_id();
+		m_logger->info("Created new HTTP client @ %p with URL base=%s, for thread ID %s", client, m_urlbase.str().c_str(), ss.str().c_str());
 	}
 	else
 	{
@@ -138,7 +141,9 @@ bool StorageClient::readingAppend(const vector<Reading *>& readings)
 			convert << (*it)->toJSON();
 		}
 		convert << " ] }";
+		m_logger->info("StorageClient::readingAppend(): Sending POST request for appending readings, this->getHttpClient()=%p", this->getHttpClient());
 		auto res = this->getHttpClient()->request("POST", "/storage/reading", convert.str());
+		m_logger->info("StorageClient::readingAppend(): POST request for appending readings completed, this->getHttpClient()=%p", this->getHttpClient());
 		if (res->status_code.compare("200 OK") == 0)
 		{
 			return true;
@@ -550,6 +555,7 @@ int StorageClient::updateTable(const string& tableName, vector<pair<ExpressionVa
 		
 		char url[128];
 		snprintf(url, sizeof(url), "/storage/table/%s", tableName.c_str());
+		m_logger->info("StorageClient::updateTable(): Sending PUT request for stats update, this->getHttpClient()=%p", this->getHttpClient());
 		auto res = this->getHttpClient()->request("PUT", url, convert.str());
 		if (res->status_code.compare("200 OK") == 0)
 		{

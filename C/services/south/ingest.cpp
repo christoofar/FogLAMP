@@ -9,6 +9,7 @@
  */
 #include <ingest.h>
 #include <reading.h>
+#include <chrono>
 #include <thread>
 #include <logger.h>
 
@@ -221,6 +222,7 @@ void Ingest::updateStats()
 	
 	try
 		{
+		std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
 		int rv = m_storage.updateTable("statistics", statsUpdates);
 		
 		if (rv<0)
@@ -235,6 +237,9 @@ void Ingest::updateStats()
 				}
 			statsPendingEntries.clear();
 			}
+		std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
+ 		auto usecs = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
+		Logger::getLogger()->info("Bulk stats update of %d readings took %lld usecs", readings, usecs);
 		}
 	catch (...)
 		{
@@ -357,6 +362,8 @@ vector<Reading *>* newQ = new vector<Reading *>();
 		m_data = m_queue;
 		m_queue = newQ;
 	}
+
+	m_logger->info("%s:%d", __FUNCTION__, __LINE__);
 	
 	ReadingSet* readingSet = NULL;
 
@@ -371,6 +378,7 @@ vector<Reading *>* newQ = new vector<Reading *>();
 	}
 
 	std::map<std::string, int>		statsEntriesCurrQueue;
+	std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
 	// check if this requires addition of a new asset tracker tuple
 	for (vector<Reading *>::iterator it = m_data->begin(); it != m_data->end(); ++it)
 	{
@@ -396,6 +404,7 @@ vector<Reading *>* newQ = new vector<Reading *>();
 	 *	3- New set of readings
 	 */
 	int rv = 0;
+	m_logger->info("%s:%d", __FUNCTION__, __LINE__);
 	if ((!m_data->empty()) &&
 			(rv = m_storage.readingAppend(*m_data)) == false && requeue == true)
 	{
@@ -410,6 +419,12 @@ vector<Reading *>* newQ = new vector<Reading *>();
 	}
 	else
 	{	
+		m_logger->info("%s:%d", __FUNCTION__, __LINE__);
+		std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
+		auto usecs = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
+		if (!m_data->empty())
+			m_logger->info("Bulk insert of %d readings done in %lld usecs", m_data->size(), usecs);
+		
 		if (!m_data->empty() && rv==false) // m_data had some (possibly filtered) readings, but they couldn't be sent successfully to storage service
 			{
 			m_logger->info("%s:%d, Couldn't send %d readings to storage service", __FUNCTION__, __LINE__, m_data->size());

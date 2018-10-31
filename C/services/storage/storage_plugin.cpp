@@ -87,6 +87,7 @@ int StoragePlugin::commonDelete(const string& table, const string& payload)
  */
 int StoragePlugin::readingsAppend(const string& payload)
 {
+	Logger::getLogger()->info("%s:%d", __FUNCTION__, __LINE__);
 	return this->readingsAppendPtr(instance, payload.c_str());
 }
 

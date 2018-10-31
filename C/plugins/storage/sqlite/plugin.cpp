@@ -128,6 +128,8 @@ int plugin_reading_append(PLUGIN_HANDLE handle, char *readings)
 ConnectionManager *manager = (ConnectionManager *)handle;
 Connection        *connection = manager->allocate();
 
+	Logger::getLogger()->info("%s:%d", __FUNCTION__, __LINE__);
+
 	int result = connection->appendReadings(readings);
 	manager->release(connection);
 	return result;;
