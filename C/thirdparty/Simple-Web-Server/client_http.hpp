@@ -509,11 +509,13 @@ namespace SimpleWeb {
 	  
 	  /*
 	  session->connection->set_timeout();
-	  asio::async_read(*session->connection->socket, session->response->streambuf, asio::transfer_exactly(0),std::bind(
+	  asio::async_read(*session->connection->socket, session->response->streambuf, asio::transfer_at_least(1),std::bind(
       									(&SimpleWeb::ClientBase<boost::asio::basic_stream_socket<boost::asio::ip::tcp> >::dummyReadHandler), 
       									this, std::placeholders::_1, std::placeholders::_2, session));*/
 
 	  session->connection->set_timeout();
+	  //boost::asio::socket_base::debug option(true);
+	  //session->connection->socket->set_option(option);
       asio::async_read_until(*session->connection->socket, session->response->streambuf, "\r\n\r\n", std::bind(
       									(&SimpleWeb::ClientBase<boost::asio::basic_stream_socket<boost::asio::ip::tcp> >::readHandler), 
       									this, std::placeholders::_1, std::placeholders::_2, session));
@@ -549,10 +551,15 @@ public:
 	void readHandler(const boost::system::error_code& ec, std::size_t bytes_transferred, std::shared_ptr<Session> session)
 	{
 	PRINT_SESS_CONN;
-    session->connection->cancel_timeout();
-    Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read_until handler(), bytes_transferred=%d, ec=%d,%s, session->connection->socket->lowest_layer().is_open()=%s",
-					__FUNCTION__, __LINE__, bytes_transferred, ec.value(), ec.message().c_str(), session->connection->socket->lowest_layer().is_open()?"open":"closed");
 	
+    session->connection->cancel_timeout();
+	boost::asio::socket_base::bytes_readable command(true);
+	session->connection->socket->io_control(command);
+	std::size_t bytes_readable = command.get();
+    Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read_until handler(), bytes_transferred=%d, ec=%d,%s, session->connection->socket->lowest_layer().is_open()=%s, bytes_readable=%d",
+					__FUNCTION__, __LINE__, bytes_transferred, ec.value(), ec.message().c_str(), session->connection->socket->lowest_layer().is_open()?"open":"closed", bytes_readable);
+	
+	//std::this_thread::sleep_for(std::chrono::milliseconds(50));	
     auto lock = session->connection->handler_runner->continue_lock();
     if(!lock)
       return;
@@ -561,22 +568,17 @@ public:
       return;
     }
 	Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read_until handler(), ec=%d,%s", __FUNCTION__, __LINE__, ec.value(), ec.message().c_str());
-#if 0
-	if (ec == asio::error::eof && session->connection->socket->lowest_layer().is_open() && bytes_transferred==0)
-	{
-		Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read_until handler(): Got EOF with no bytes_transferred, ignoring it and doing async_read_until again", __FUNCTION__, __LINE__);
-		session->connection->set_timeout();
-		asio::async_read_until(*session->connection->socket, session->response->streambuf, "\r\n\r\n", std::bind(
-      									(&SimpleWeb::ClientBase<boost::asio::basic_stream_socket<boost::asio::ip::tcp> >::readHandler), 
-      									this, std::placeholders::_1, std::placeholders::_2, session));
-	}
-#endif
+
     if(!ec) {
       session->connection->attempt_reconnect = true;
 	  Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read_until handler()", __FUNCTION__, __LINE__);
+	  session->connection->socket->io_control(command);
+	  bytes_readable = command.get();
+	  Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read_until handler(), bytes_transferred=%d, ec=%d,%s, session->connection->socket->lowest_layer().is_open()=%s, bytes_readable=%d",
+					__FUNCTION__, __LINE__, bytes_transferred, ec.value(), ec.message().c_str(), session->connection->socket->lowest_layer().is_open()?"open":"closed", bytes_readable);
       std::size_t num_additional_bytes = session->response->streambuf.size() - bytes_transferred;
 
-      if(!ResponseMessage::parse(session->response->content, session->response->http_version, session->response->status_code, session->response->header)) {
+      if(!ec && !ResponseMessage::parse(session->response->content, session->response->http_version, session->response->status_code, session->response->header)) {
 	  	PRINT_FUNC;
         session->callback(session->connection, make_error_code::make_error_code(errc::protocol_error));
         return;
@@ -585,47 +587,42 @@ public:
       auto header_it = session->response->header.find("Content-Length");
       if(header_it != session->response->header.end()) {
         auto content_length = stoull(header_it->second);
-		//long transfer_size = content_length - (long)num_additional_bytes;
-		//if(transfer_size == 0) transfer_size=1;
         if(content_length > num_additional_bytes) {
           session->connection->set_timeout();
-		  Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read_until handler(): content_length=%ld, num_additional_bytes=%ld, starting async read with transfer_size=%d", 
-									__FUNCTION__, __LINE__, (long) content_length, (long) num_additional_bytes, (long) (content_length - num_additional_bytes));
-          asio::async_read(*session->connection->socket, session->response->streambuf, asio::transfer_exactly(content_length - num_additional_bytes), [session](const error_code &ec, std::size_t /*bytes_transferred*/) {
-            session->connection->cancel_timeout();
-			Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read_until handler 2 - read till EOF() orig", __FUNCTION__, __LINE__);
-            auto lock = session->connection->handler_runner->continue_lock();
-            if(!lock)
-              return;
-            if(!ec || ec == asio::error::eof) {
-              if(session->response->streambuf.size() == session->response->streambuf.max_size()) {
-			  	PRINT_FUNC;
-                session->callback(session->connection, make_error_code::make_error_code(errc::message_size));
-                return;
-              }
-			  PRINT_FUNC;
-              session->callback(session->connection, ec == asio::error::eof ? error_code() : ec);
-            }
-            else
-            {
-				PRINT_FUNC;
-              session->callback(session->connection, ec);
-            }
-          });
+		  session->connection->socket->io_control(command);
+		  std::size_t bytes_readable = command.get();
+		  Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read_until handler(): content_length=%ld, num_additional_bytes=%ld, starting async read with transfer_size=%d, bytes_readable=%d", 
+									__FUNCTION__, __LINE__, (long) content_length, (long) num_additional_bytes, (long) (content_length - num_additional_bytes), bytes_readable);
+
+		  if (!ec)
+		  {
+	          asio::async_read(*session->connection->socket, session->response->streambuf, asio::transfer_at_least(content_length - num_additional_bytes), [session](const error_code &ec, std::size_t /*bytes_transferred*/) {
+	            session->connection->cancel_timeout();
+				Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read_until handler 2 - read till EOF() orig", __FUNCTION__, __LINE__);
+	            auto lock = session->connection->handler_runner->continue_lock();
+	            if(!lock)
+	              return;
+	            if(!ec || ec == asio::error::eof) {
+	              if(session->response->streambuf.size() == session->response->streambuf.max_size()) {
+				  	PRINT_FUNC;
+	                session->callback(session->connection, make_error_code::make_error_code(errc::message_size));
+	                return;
+	              }
+				  PRINT_FUNC;
+	              session->callback(session->connection, ec == asio::error::eof ? error_code() : ec);
+	            }
+	            else
+	            {
+					PRINT_FUNC;
+	              session->callback(session->connection, ec);
+	            }
+	          });
+		  }
         }
         else
         {
 		  Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read_until handler(): content_length=%ld, num_additional_bytes=%ld",
 		  											__FUNCTION__, __LINE__, (long)content_length, (long)num_additional_bytes);
-		  //read EoF
-		  if (content_length == num_additional_bytes)
-		  {
-		  	session->connection->set_timeout();
-	  		asio::async_read(*session->connection->socket, session->response->streambuf, asio::transfer_exactly(0),std::bind(
-      									(&SimpleWeb::ClientBase<boost::asio::basic_stream_socket<boost::asio::ip::tcp> >::dummyReadHandler), 
-      									this, std::placeholders::_1, std::placeholders::_2, session));
-		  }
-		  	
 		  
           session->callback(session->connection, ec);
         }
@@ -657,12 +654,27 @@ public:
       else
         session->callback(session->connection, ec);
     }
+	/*else if (ec == asio::error::eof && bytes_transferred==0 && session->connection->socket->lowest_layer().is_open())
+	{
+		PRINT_FUNC;
+		session->connection->set_timeout();
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      	asio::async_read_until(*session->connection->socket, session->response->streambuf, "\r\n\r\n", std::bind(
+      									(&SimpleWeb::ClientBase<boost::asio::basic_stream_socket<boost::asio::ip::tcp> >::readHandler), 
+      									this, std::placeholders::_1, std::placeholders::_2, session));
+		session->callback(session->connection, error_code());
+	}*/
     else {
       if(session->connection->attempt_reconnect && ec != asio::error::operation_aborted) {
+	  	session->connection->socket->io_control(command);
+		bytes_readable = command.get();
+		Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read_until handler(), bytes_transferred=%d, ec=%d,%s, session->connection->socket->lowest_layer().is_open()=%s, bytes_readable=%d",
+						__FUNCTION__, __LINE__, bytes_transferred, ec.value(), ec.message().c_str(), session->connection->socket->lowest_layer().is_open()?"open":"closed", bytes_readable);
 	  	Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read_until handler(): Attempt reconnect, ec=%d,%s", __FUNCTION__, __LINE__, ec.value(), ec.message().c_str());
         std::unique_lock<std::mutex> lock(connections_mutex);
         auto it = connections.find(session->connection);
         if(it != connections.end()) {
+		  PRINT_FUNC;
           connections.erase(it);
           session->connection = create_connection();
           session->connection->attempt_reconnect = false;
@@ -783,6 +795,7 @@ protected:
 
     void connect(const std::shared_ptr<Session> &session) override {
       if(!session->connection->socket->lowest_layer().is_open()) {
+	  	Logger::getLogger()->info("client_http.hpp: %s:%d: re-connecting as connection has dropped", __FUNCTION__, __LINE__);
         auto resolver = std::make_shared<asio::ip::tcp::resolver>(*io_service);
         session->connection->set_timeout(config.timeout_connect);
         resolver->async_resolve(*query, [this, session, resolver](const error_code &ec, asio::ip::tcp::resolver::iterator it) {
@@ -813,8 +826,8 @@ protected:
         });
       }
       else
-      	{
-      	Logger::getLogger()->info("client_http.hpp: %s:%d", __FUNCTION__, __LINE__);
+	  	{
+      	Logger::getLogger()->info("client_http.hpp: %s:%d: not re-connecting as connection hasn't dropped", __FUNCTION__, __LINE__);
         write(session);
       	}
     }
