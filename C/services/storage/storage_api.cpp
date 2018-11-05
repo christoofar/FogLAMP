@@ -112,6 +112,7 @@ void on_error(__attribute__((unused)) shared_ptr<HttpServer::Request> request, _
  */
 void readingAppendWrapper(shared_ptr<HttpServer::Response> response, shared_ptr<HttpServer::Request> request)
 {
+	Logger::getLogger()->info("%s:%d", __FUNCTION__, __LINE__);
 	StorageApi *api = StorageApi::getInstance();
 	api->readingAppend(response, request);
 }

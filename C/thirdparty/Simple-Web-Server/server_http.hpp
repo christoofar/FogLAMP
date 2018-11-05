@@ -9,8 +9,72 @@
 #include <map>
 #include <mutex>
 #include <sstream>
+#include <cstring>
 #include <thread>
 #include <unordered_set>
+#include <logger.h>
+
+#if 0
+#include <execinfo.h> // for backtrace
+#include <dlfcn.h>    // for dladdr
+#include <cxxabi.h>   // for __cxa_demangle
+
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+#include <sstream>
+
+#define BOOST_ASIO_ENABLE_HANDLER_TRACKING
+#define BOOST_ASIO_ENABLE_BUFFER_DEBUGGING
+
+// This function produces a stack backtrace with demangled function & method names.
+static std::string Backtrace(int skip = 1)
+{
+    void *callstack[128];
+    const int nMaxFrames = sizeof(callstack) / sizeof(callstack[0]);
+    char buf[1024];
+    int nFrames = backtrace(callstack, nMaxFrames);
+    char **symbols = backtrace_symbols(callstack, nFrames);
+
+    std::ostringstream trace_buf;
+    for (int i = skip; i < nFrames; i++) {
+        printf("%s\n", symbols[i]);
+
+        Dl_info info;
+        if (dladdr(callstack[i], &info) && info.dli_sname) {
+            char *demangled = NULL;
+            int status = -1;
+            if (info.dli_sname[0] == '_')
+                demangled = abi::__cxa_demangle(info.dli_sname, NULL, 0, &status);
+            snprintf(buf, sizeof(buf), "%-3d %*p %s + %zd---------",
+                     i, int(2 + sizeof(void*) * 2), callstack[i],
+                     status == 0 ? demangled :
+                     info.dli_sname == 0 ? symbols[i] : info.dli_sname,
+                     (char *)callstack[i] - (char *)info.dli_saddr);
+            free(demangled);
+        } else {
+            snprintf(buf, sizeof(buf), "%-3d %*p %s---------",
+                     i, int(2 + sizeof(void*) * 2), callstack[i], symbols[i]);
+        }
+        trace_buf << buf;
+    }
+    free(symbols);
+    if (nFrames == nMaxFrames)
+        trace_buf << "[truncated]\n";
+    return trace_buf.str();
+}
+
+static inline void printBacktrace()
+{
+	const int perLine=993;
+	std::string str = Backtrace();
+	char * cstr = new char [str.length()+1];
+	strcpy(cstr, str.c_str());
+	for (int count=0; count<((int)(str.size())+perLine-1)/perLine; count++)
+		Logger::getLogger()->info("%04d: %s", count*perLine, (cstr+count*perLine));
+	delete[] cstr;
+}
+#endif
 
 #ifdef USE_STANDALONE_ASIO
 #include <asio.hpp>
@@ -516,12 +580,17 @@ namespace SimpleWeb {
     }
 
     void read(const std::shared_ptr<Session> &session) {
-      session->connection->set_timeout(config.timeout_request);
+      //Logger::getLogger()->info("server_http.hpp: %s:%d", __FUNCTION__, __LINE__);
+	  session->connection->set_timeout(config.timeout_request);
+	  //printBacktrace();
       asio::async_read_until(*session->connection->socket, session->request->streambuf, "\r\n\r\n", [this, session](const error_code &ec, std::size_t bytes_transferred) {
+      	std::string buff(""); //{buffers_begin(session->request->streambuf.data()), buffers_end(session->request->streambuf.data())};
+	  	//Logger::getLogger()->info("server_http.hpp: %s:%d: asio::async_write handler(): buffer=%s", __FUNCTION__, __LINE__, buff.c_str());
         session->connection->cancel_timeout();
         auto lock = session->connection->handler_runner->continue_lock();
         if(!lock)
           return;
+		//if (ec.value()) Logger::getLogger()->info("server_http.hpp: %s:%d: read Handler: ec=%d, %s", __FUNCTION__, __LINE__, ec.value(), ec.message().c_str());
         session->request->header_read_time = std::chrono::system_clock::now();
         if((!ec || ec == asio::error::not_found) && session->request->streambuf.size() == session->request->streambuf.max_size()) {
           auto response = std::shared_ptr<Response>(new Response(session, this->config.timeout_content));
@@ -556,6 +625,7 @@ namespace SimpleWeb {
                 this->on_error(session->request, make_error_code::make_error_code(errc::protocol_error));
               return;
             }
+			//Logger::getLogger()->info("server_http.hpp: %s:%d - content_length=%u, num_additional_bytes=%d, config.timeout_content=%ld", __FUNCTION__, __LINE__, content_length, (int)num_additional_bytes, config.timeout_content);
             if(content_length > num_additional_bytes) {
               session->connection->set_timeout(config.timeout_content);
               asio::async_read(*session->connection->socket, session->request->streambuf, asio::transfer_exactly(content_length - num_additional_bytes), [this, session](const error_code &ec, std::size_t /*bytes_transferred*/) {
@@ -571,6 +641,7 @@ namespace SimpleWeb {
                       this->on_error(session->request, make_error_code::make_error_code(errc::message_size));
                     return;
                   }
+				  //Logger::getLogger()->info("server_http.hpp: %s:%d", __FUNCTION__, __LINE__);
                   this->find_resource(session);
                 }
                 else if(this->on_error)
@@ -578,14 +649,20 @@ namespace SimpleWeb {
               });
             }
             else
+            	{
+            	//Logger::getLogger()->info("server_http.hpp: %s:%d", __FUNCTION__, __LINE__);
               this->find_resource(session);
+            	}
           }
           else if((header_it = session->request->header.find("Transfer-Encoding")) != session->request->header.end() && header_it->second == "chunked") {
             auto chunks_streambuf = std::make_shared<asio::streambuf>(this->config.max_request_streambuf_size);
             this->read_chunked_transfer_encoded(session, chunks_streambuf);
           }
           else
+          	{
+          	Logger::getLogger()->info("server_http.hpp: %s:%d", __FUNCTION__, __LINE__);
             this->find_resource(session);
+          	}
         }
         else if(this->on_error)
           this->on_error(session->request, ec);
@@ -679,6 +756,7 @@ namespace SimpleWeb {
           ostream << chunks_streambuf.get();
         }
         this->find_resource(session);
+		Logger::getLogger()->info("server_http.hpp: %s:%d", __FUNCTION__, __LINE__);
       }
     }
 
@@ -699,6 +777,7 @@ namespace SimpleWeb {
           return;
         }
       }
+	  //Logger::getLogger()->info("server_http.hpp: %s:%d - session->request->method='%s'", __FUNCTION__, __LINE__, session->request->method.c_str());
       // Find path- and method-match, and call write
       for(auto &regex_method : resource) {
         auto it = regex_method.second.find(session->request->method);
@@ -719,6 +798,8 @@ namespace SimpleWeb {
     void write(const std::shared_ptr<Session> &session,
                std::function<void(std::shared_ptr<typename ServerBase<socket_type>::Response>, std::shared_ptr<typename ServerBase<socket_type>::Request>)> &resource_function) {
       session->connection->set_timeout(config.timeout_content);
+	  //Logger::getLogger()->info("server_http.hpp: %s:%d", __FUNCTION__, __LINE__);
+	  //printBacktrace();
       auto response = std::shared_ptr<Response>(new Response(session, config.timeout_content), [this](Response *response_ptr) {
         auto response = std::shared_ptr<Response>(response_ptr);
         response->send_on_delete([this, response](const error_code &ec) {
@@ -726,6 +807,7 @@ namespace SimpleWeb {
             if(response->close_connection_after_response)
               return;
 
+			//Logger::getLogger()->info("server_http.hpp: %s:%d", __FUNCTION__, __LINE__);
             auto range = response->session->request->header.equal_range("Connection");
             for(auto it = range.first; it != range.second; it++) {
               if(case_insensitive_equal(it->second, "close"))

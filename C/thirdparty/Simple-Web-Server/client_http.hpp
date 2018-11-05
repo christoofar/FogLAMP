@@ -7,6 +7,11 @@
 #include <random>
 #include <unordered_set>
 #include <vector>
+#include <logger.h>
+#include <thread>
+
+//#define BOOST_ASIO_ENABLE_HANDLER_TRACKING
+//#define BOOST_ASIO_ENABLE_BUFFER_DEBUGGING
 
 #ifdef USE_STANDALONE_ASIO
 #include <asio.hpp>
@@ -28,6 +33,10 @@ namespace SimpleWeb {
   namespace make_error_code = boost::system::errc;
 } // namespace SimpleWeb
 #endif
+
+#define PRINT_FUNC    Logger::getLogger()->info("client_http.hpp: %s:%d", __FUNCTION__, __LINE__)
+#define PRINT_SESS_CONN    Logger::getLogger()->info("client_http.hpp: %s:%d, session=%p, connection=%p", __FUNCTION__, __LINE__, session, session->connection)
+#define PRINT_ERROR_CODE    Logger::getLogger()->info("client_http.hpp: %s:%d, ec=%d,%s", __FUNCTION__, __LINE__, ec.value(), ec.message().c_str())
 
 namespace SimpleWeb {
   template <class socket_type>
@@ -192,6 +201,7 @@ namespace SimpleWeb {
     /// Do not use concurrently with the asynchronous request functions.
     std::shared_ptr<Response> request(const std::string &method, const std::string &path, std::istream &content,
                                       const CaseInsensitiveMultimap &header = CaseInsensitiveMultimap()) {
+      PRINT_FUNC;
       std::shared_ptr<Response> response;
       error_code ec;
       request(method, path, content, header, [&response, &ec](std::shared_ptr<Response> response_, const error_code &ec_) {
@@ -221,11 +231,13 @@ namespace SimpleWeb {
     /// Do not use concurrently with the synchronous request functions.
     void request(const std::string &method, const std::string &path, string_view content, const CaseInsensitiveMultimap &header,
                  std::function<void(std::shared_ptr<Response>, const error_code &)> &&request_callback_) {
-      auto session = std::make_shared<Session>(config.max_response_streambuf_size, get_connection(), create_request_header(method, path, header));
+      PRINT_FUNC;
+	  auto session = std::make_shared<Session>(config.max_response_streambuf_size, get_connection(), create_request_header(method, path, header));
       auto response = session->response;
       auto request_callback = std::make_shared<std::function<void(std::shared_ptr<Response>, const error_code &)>>(std::move(request_callback_));
       session->callback = [this, response, request_callback](const std::shared_ptr<Connection> &connection, const error_code &ec) {
         {
+	      Logger::getLogger()->info("client_http.hpp: %s:%d: session->callback", __FUNCTION__, __LINE__);
           std::unique_lock<std::mutex> lock(this->connections_mutex);
           connection->in_use = false;
 
@@ -233,13 +245,19 @@ namespace SimpleWeb {
           std::size_t unused_connections = 0;
           for(auto it = this->connections.begin(); it != this->connections.end();) {
             if(ec && connection == *it)
+            {
+				Logger::getLogger()->info("client_http.hpp: %s:%d: erasing current connection: ec=%d,%s", __FUNCTION__, __LINE__, ec.value(), ec.message().c_str());
               it = this->connections.erase(it);
+            }
             else if((*it)->in_use)
               ++it;
             else {
               ++unused_connections;
-              if(unused_connections > 1)
+              if(unused_connections > 3)
+              {
+			  	Logger::getLogger()->info("client_http.hpp: %s:%d: erasing extra unused connection", __FUNCTION__, __LINE__);
                 it = this->connections.erase(it);
+              }
               else
                 ++it;
             }
@@ -261,7 +279,7 @@ namespace SimpleWeb {
       }
       write_stream << "\r\n"
                    << content;
-
+	  PRINT_FUNC;
       connect(session);
     }
 
@@ -286,7 +304,8 @@ namespace SimpleWeb {
     /// Asynchronous request where setting and/or running Client's io_service is required.
     void request(const std::string &method, const std::string &path, std::istream &content, const CaseInsensitiveMultimap &header,
                  std::function<void(std::shared_ptr<Response>, const error_code &)> &&request_callback_) {
-      auto session = std::make_shared<Session>(config.max_response_streambuf_size, get_connection(), create_request_header(method, path, header));
+      PRINT_FUNC;
+	  auto session = std::make_shared<Session>(config.max_response_streambuf_size, get_connection(), create_request_header(method, path, header));
       auto response = session->response;
       auto request_callback = std::make_shared<std::function<void(std::shared_ptr<Response>, const error_code &)>>(std::move(request_callback_));
       session->callback = [this, response, request_callback](const std::shared_ptr<Connection> &connection, const error_code &ec) {
@@ -298,13 +317,19 @@ namespace SimpleWeb {
           std::size_t unused_connections = 0;
           for(auto it = this->connections.begin(); it != this->connections.end();) {
             if(ec && connection == *it)
+            {
+				Logger::getLogger()->info("client_http.hpp: %s:%d: erasing current connection: ec=%d,%s", __FUNCTION__, __LINE__, ec.value(), ec.message().c_str());
               it = this->connections.erase(it);
+            }
             else if((*it)->in_use)
               ++it;
             else {
               ++unused_connections;
-              if(unused_connections > 1)
+              if(unused_connections > 3)
+              {
+			  	Logger::getLogger()->info("client_http.hpp: %s:%d: erasing extra connection", __FUNCTION__, __LINE__);
                 it = this->connections.erase(it);
+              }
               else
                 ++it;
             }
@@ -450,8 +475,12 @@ namespace SimpleWeb {
 
     void write(const std::shared_ptr<Session> &session) {
       session->connection->set_timeout();
-      asio::async_write(*session->connection->socket, session->request_streambuf->data(), [this, session](const error_code &ec, std::size_t /*bytes_transferred*/) {
-        session->connection->cancel_timeout();
+      PRINT_SESS_CONN;
+	  std::string buff(""); // {buffers_begin(session->request_streambuf->data()), buffers_end(session->request_streambuf->data())};
+	  Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_write handler(): buffer=%s", __FUNCTION__, __LINE__, buff.c_str());
+      asio::async_write(*session->connection->socket, session->request_streambuf->data(), [this, session](const error_code &ec, std::size_t bytes_transferred) {
+        PRINT_SESS_CONN;
+		session->connection->cancel_timeout();
         auto lock = session->connection->handler_runner->continue_lock();
         if(!lock)
           return;
@@ -463,7 +492,11 @@ namespace SimpleWeb {
     }
 
     void read(const std::shared_ptr<Session> &session) {
+      //boost::asio::socket_base::debug option(true);
+      //session->connection->socket->set_option(option);
       session->connection->set_timeout();
+	  //if(std::is_same<socket_type, asio::ip::tcp::socket>::value)
+	  PRINT_FUNC;
       asio::async_read_until(*session->connection->socket, session->response->streambuf, "\r\n\r\n", [this, session](const error_code &ec, std::size_t bytes_transferred) {
         session->connection->cancel_timeout();
         auto lock = session->connection->handler_runner->continue_lock();
@@ -481,6 +514,7 @@ namespace SimpleWeb {
             session->callback(session->connection, make_error_code::make_error_code(errc::protocol_error));
             return;
           }
+		  Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read handler(): ec=%d,%s", __FUNCTION__, __LINE__, ec.value(), ec.message().c_str());
 
           auto header_it = session->response->header.find("Content-Length");
           if(header_it != session->response->header.end()) {
@@ -554,6 +588,25 @@ namespace SimpleWeb {
         }
       });
     }
+
+	
+public:
+	void dummyReadHandler(const boost::system::error_code& ec, std::size_t bytes_transferred, std::shared_ptr<Session> session)
+	{
+		session->connection->cancel_timeout();
+        Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read_until handler(), bytes_transferred=%d, ec=%d,%s, session->connection->socket->lowest_layer().is_open()=%s",
+				__FUNCTION__, __LINE__, bytes_transferred, ec.value(), ec.message().c_str(), session->connection->socket->lowest_layer().is_open()?"open":"closed");
+        //session->callback(session->connection, ec);
+        /*if(ec != asio::error::eof)
+        {
+			session->connection->set_timeout();
+			asio::async_read(*session->connection->socket, session->response->streambuf, asio::transfer_exactly(0),std::bind(
+      									(&SimpleWeb::ClientBase<boost::asio::basic_stream_socket<boost::asio::ip::tcp> >::dummyReadHandler), 
+      									this, std::placeholders::_1, std::placeholders::_2, session));
+        }*/
+        return;
+	}
+protected:
 
     void read_chunked_transfer_encoded(const std::shared_ptr<Session> &session, const std::shared_ptr<asio::streambuf> &chunks_streambuf) {
       session->connection->set_timeout();
@@ -653,7 +706,10 @@ namespace SimpleWeb {
     }
 
     void connect(const std::shared_ptr<Session> &session) override {
+	  Logger::getLogger()->info("client_http.hpp: %s:%d: session->connection->socket->lowest_layer().is_open()=%s", __FUNCTION__, __LINE__, session->connection->socket->lowest_layer().is_open()?"OPEN":"CLOSED");
+	  
       if(!session->connection->socket->lowest_layer().is_open()) {
+	  	Logger::getLogger()->info("client_http.hpp: %s:%d: re-connecting as connection has dropped", __FUNCTION__, __LINE__);
         auto resolver = std::make_shared<asio::ip::tcp::resolver>(*io_service);
         session->connection->set_timeout(config.timeout_connect);
         resolver->async_resolve(*query, [this, session, resolver](const error_code &ec, asio::ip::tcp::resolver::iterator it) {
@@ -672,6 +728,7 @@ namespace SimpleWeb {
                 asio::ip::tcp::no_delay option(true);
                 error_code ec;
                 session->connection->socket->set_option(option, ec);
+				Logger::getLogger()->info("client_http.hpp: %s:%d", __FUNCTION__, __LINE__);
                 this->write(session);
               }
               else
@@ -683,7 +740,10 @@ namespace SimpleWeb {
         });
       }
       else
+	  	{
+      	Logger::getLogger()->info("client_http.hpp: %s:%d: not re-connecting as connection hasn't dropped", __FUNCTION__, __LINE__);
         write(session);
+      	}
     }
   };
 } // namespace SimpleWeb
