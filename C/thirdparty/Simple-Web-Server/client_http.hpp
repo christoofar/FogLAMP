@@ -38,6 +38,23 @@ namespace SimpleWeb {
 #define PRINT_SESS_CONN    Logger::getLogger()->info("client_http.hpp: %s:%d, session=%p, connection=%p", __FUNCTION__, __LINE__, session, session->connection)
 #define PRINT_ERROR_CODE    Logger::getLogger()->info("client_http.hpp: %s:%d, ec=%d,%s", __FUNCTION__, __LINE__, ec.value(), ec.message().c_str())
 
+#if 0
+static char path[PATH_MAX];
+
+const char *getApplName()
+{
+	//char *path = malloc(PATH_MAX);
+	path[0]='\0';
+    if (path != NULL) {
+        if (readlink("/proc/self/exe", path, PATH_MAX) == -1) {
+            //free(path);
+            //path = NULL;
+        }
+    }
+    return path;
+}
+#endif
+
 namespace SimpleWeb {
   template <class socket_type>
   class Client;
@@ -478,7 +495,7 @@ namespace SimpleWeb {
       PRINT_SESS_CONN;
 	  std::string buff(""); // {buffers_begin(session->request_streambuf->data()), buffers_end(session->request_streambuf->data())};
 	  Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_write handler(): buffer=%s", __FUNCTION__, __LINE__, buff.c_str());
-      asio::async_write(*session->connection->socket, session->request_streambuf->data(), [this, session](const error_code &ec, std::size_t bytes_transferred) {
+      asio::async_write(*session->connection->socket, session->request_streambuf->data(), [this, session](const error_code &ec, std::size_t /*bytes_transferred*/) {
         PRINT_SESS_CONN;
 		session->connection->cancel_timeout();
         auto lock = session->connection->handler_runner->continue_lock();
@@ -492,7 +509,7 @@ namespace SimpleWeb {
     }
 
     void read(const std::shared_ptr<Session> &session) {
-      //boost::asio::socket_base::debug option(true);
+      //asio::socket_base::debug option(true);
       //session->connection->socket->set_option(option);
       session->connection->set_timeout();
 	  //if(std::is_same<socket_type, asio::ip::tcp::socket>::value)
@@ -502,10 +519,15 @@ namespace SimpleWeb {
         auto lock = session->connection->handler_runner->continue_lock();
         if(!lock)
           return;
+		Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read handler(): ec=%d,%s", __FUNCTION__, __LINE__, ec.value(), ec.message().c_str());
         if((!ec || ec == asio::error::not_found) && session->response->streambuf.size() == session->response->streambuf.max_size()) {
           session->callback(session->connection, make_error_code::make_error_code(errc::message_size));
           return;
         }
+		if (ec == asio::error::eof)
+		{
+			Logger::getLogger()->info("client_http.hpp: %s:%d: Got EOF", __FUNCTION__, __LINE__);
+		}
         if(!ec) {
           session->connection->attempt_reconnect = true;
           std::size_t num_additional_bytes = session->response->streambuf.size() - bytes_transferred;
@@ -569,6 +591,7 @@ namespace SimpleWeb {
           if(session->connection->attempt_reconnect && ec != asio::error::operation_aborted) {
             std::unique_lock<std::mutex> lock(connections_mutex);
             auto it = connections.find(session->connection);
+			Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read handler(): %s connection", __FUNCTION__, __LINE__, (it != connections.end())?"Found":"Didn't find");
             if(it != connections.end()) {
               connections.erase(it);
               session->connection = create_connection();
@@ -576,6 +599,7 @@ namespace SimpleWeb {
               session->connection->in_use = true;
               connections.emplace(session->connection);
               lock.unlock();
+			  Logger::getLogger()->info("client_http.hpp: %s:%d: asio::async_read handler(): Created new connection, calling it's connect method", __FUNCTION__, __LINE__);
               this->connect(session);
             }
             else {
@@ -706,6 +730,12 @@ protected:
     }
 
     void connect(const std::shared_ptr<Session> &session) override {
+	  static char path[PATH_MAX];
+
+  	  path[0]='\0';
+      
+      (void) readlink("/proc/self/exe", path, PATH_MAX);
+
 	  Logger::getLogger()->info("client_http.hpp: %s:%d: session->connection->socket->lowest_layer().is_open()=%s", __FUNCTION__, __LINE__, session->connection->socket->lowest_layer().is_open()?"OPEN":"CLOSED");
 	  
       if(!session->connection->socket->lowest_layer().is_open()) {
@@ -717,6 +747,11 @@ protected:
           auto lock = session->connection->handler_runner->continue_lock();
           if(!lock)
             return;
+		  if(ec == asio::error::eof)
+		  {
+		  	Logger::getLogger()->info("client_http.hpp: %s:%d: EOF case: not doing write again", __FUNCTION__, __LINE__);
+		  	read(session);
+		  }
           if(!ec) {
             session->connection->set_timeout(config.timeout_connect);
             asio::async_connect(*session->connection->socket, it, [this, session, resolver](const error_code &ec, asio::ip::tcp::resolver::iterator /*it*/) {
@@ -728,6 +763,12 @@ protected:
                 asio::ip::tcp::no_delay option(true);
                 error_code ec;
                 session->connection->socket->set_option(option, ec);
+				/*if (strstr(path, "foglamp.services.south"))
+				{
+					asio::socket_base::debug option1(true);
+					session->connection->socket->set_option(option1);
+				}*/
+
 				Logger::getLogger()->info("client_http.hpp: %s:%d", __FUNCTION__, __LINE__);
                 this->write(session);
               }
