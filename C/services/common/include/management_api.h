@@ -42,6 +42,7 @@ class ManagementApi {
 		}
 		void ping(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request);
 		void shutdown(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request);
+		void options(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request);
 		void configChange(std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request);
 
 	protected:

@@ -36,6 +36,15 @@ void shutdownWrapper(shared_ptr<HttpServer::Response> response, shared_ptr<HttpS
 }
 
 /**
+ * Wrapper for options request - to handle preflight requests
+ */
+void optionsWrapper(shared_ptr<HttpServer::Response> response, shared_ptr<HttpServer::Request> request)
+{
+        ManagementApi *api = ManagementApi::getInstance();
+        api->options(response, request);
+}
+
+/**
  * Wrapper for config change method
  */
 void configChangeWrapper(shared_ptr<HttpServer::Response> response, shared_ptr<HttpServer::Request> request)
@@ -56,6 +65,7 @@ ManagementApi::ManagementApi(const string& name, const unsigned short port) : m_
 	m_statsProvider = 0;
 	m_server->resource[PING]["GET"] = pingWrapper;
 	m_server->resource[SERVICE_SHUTDOWN]["POST"] = shutdownWrapper;
+	m_server->resource[SERVICE_SHUTDOWN]["OPTIONS"] = optionsWrapper;
 	m_server->resource[CONFIG_CHANGE]["POST"] = configChangeWrapper;
 
 	m_instance = this;
@@ -144,6 +154,15 @@ string responsePayload;
 }
 
 /**
+ * Received a options request, construct an empty reply and return to caller
+ */
+void ManagementApi::options(shared_ptr<HttpServer::Response> response, shared_ptr<HttpServer::Request> request)
+{
+	(void)request;	// Unsused argument
+	respond(response, "");
+}
+
+/**
  * Received a config change request, construct a reply and return to caller
  */
 void ManagementApi::configChange(shared_ptr<HttpServer::Response> response, shared_ptr<HttpServer::Request> request)
@@ -158,10 +177,12 @@ string responsePayload;
 }
 
 /**
- * HTTP response method
+ * HTTP response method - added "Access-Control-Allow-*" headers to enable CORS
  */
 void ManagementApi::respond(shared_ptr<HttpServer::Response> response, const string& payload)
 {
         *response << "HTTP/1.1 200 OK\r\nContent-Length: " << payload.length() << "\r\n"
+                 <<  "Access-Control-Allow-Origin: *" << "\r\n"
+                 <<  "Access-Control-Allow-Headers: Content-Type" << "\r\n"
                  <<  "Content-type: application/json\r\n\r\n" << payload;
 }
