@@ -585,7 +585,7 @@ namespace SimpleWeb {
 	  //printBacktrace();
       asio::async_read_until(*session->connection->socket, session->request->streambuf, "\r\n\r\n", [this, session](const error_code &ec, std::size_t bytes_transferred) {
       	std::string buff(""); //{buffers_begin(session->request->streambuf.data()), buffers_end(session->request->streambuf.data())};
-	  	//Logger::getLogger()->info("server_http.hpp: %s:%d: asio::async_write handler(): buffer=%s", __FUNCTION__, __LINE__, buff.c_str());
+      	//Logger::getLogger()->info("server_http.hpp: %s:%d: asio::async_read_until - read request handler, buff=%s", __FUNCTION__, __LINE__, buff.c_str());
         session->connection->cancel_timeout();
         auto lock = session->connection->handler_runner->continue_lock();
         if(!lock)
@@ -650,8 +650,8 @@ namespace SimpleWeb {
             }
             else
             	{
-            	//Logger::getLogger()->info("server_http.hpp: %s:%d", __FUNCTION__, __LINE__);
-              this->find_resource(session);
+            	Logger::getLogger()->info("server_http.hpp: %s:%d - read handler -read completed", __FUNCTION__, __LINE__);
+                this->find_resource(session);
             	}
           }
           else if((header_it = session->request->header.find("Transfer-Encoding")) != session->request->header.end() && header_it->second == "chunked") {
@@ -660,7 +660,7 @@ namespace SimpleWeb {
           }
           else
           	{
-          	Logger::getLogger()->info("server_http.hpp: %s:%d", __FUNCTION__, __LINE__);
+          	//Logger::getLogger()->info("server_http.hpp: %s:%d", __FUNCTION__, __LINE__);
             this->find_resource(session);
           	}
         }
@@ -807,7 +807,7 @@ namespace SimpleWeb {
             if(response->close_connection_after_response)
               return;
 
-			//Logger::getLogger()->info("server_http.hpp: %s:%d", __FUNCTION__, __LINE__);
+			//Logger::getLogger()->info("server_http.hpp: %s:%d: write response handler", __FUNCTION__, __LINE__);
             auto range = response->session->request->header.equal_range("Connection");
             for(auto it = range.first; it != range.second; it++) {
               if(case_insensitive_equal(it->second, "close"))
