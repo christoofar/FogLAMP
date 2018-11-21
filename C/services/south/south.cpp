@@ -417,17 +417,57 @@ void SouthService::shutdown()
 /**
  * Configuration change notification
  */
-void SouthService::configChange(const string& categoryName, const string& category)
+void SouthService::configChange(const string& categoryName, const string& payload)
 {
 	// TODO action configuration change
-	logger->info("Configuration change in category %s: %s", categoryName.c_str(),
-			category.c_str());
+	logger->info("SouthService::configChange: Configuration change in category %s: %s", categoryName.c_str(),
+			payload.c_str());
 	m_configAdvanced = m_mgtClient->getCategory(m_name+"Advanced");
 	try {
 		m_readingsPerSec = (unsigned long)atoi(m_configAdvanced.getValue("readingsPerSec").c_str());
 	} catch (ConfigItemNotFound e) {
 		logger->error("Failed to update poll interval following configuration change");
 	}
+
+	Document document;
+	try
+	{
+		if (document.Parse(payload.c_str()).HasParseError())
+		{
+			Logger::getLogger()->error("SouthService::configChange parsing error: payload=%s", payload.c_str());
+			return;
+		}
+
+		if (!document.HasMember("category") || !document["category"].IsString())
+		{
+			Logger::getLogger()->error("SouthService::configChange doesn't have (valid) \"category\" member: payload=%s", payload.c_str());
+			return;
+		}
+
+		if (!document.HasMember("items") || !document["items"].IsObject())
+		{
+			Logger::getLogger()->error("SouthService::configChange doesn't have \"items\" member: payload=%s", payload.c_str());
+			return;
+		}
+	} 
+	catch (exception& e)
+	{
+		Logger::getLogger()->error("SouthService::configChange exception: payload=%s", payload.c_str());
+		return;
+	}
+
+	Value &items = document["items"];
+	StringBuffer buffer;
+	Writer<StringBuffer> writer(buffer);
+	items.Accept(writer);
+	string catName = document["category"].GetString();
+
+	Logger::getLogger()->error("SouthService::configChange: catName=%s, items=%s", catName.c_str(), buffer.GetString());
+	
+	if (catName == m_name)
+		southPlugin->reconfigure(buffer.GetString());
+	else // - bench1Advanced case
+		Logger::getLogger()->error("SouthService::configChange: bench1Advanced case");
 }
 
 /**

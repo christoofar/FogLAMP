@@ -150,8 +150,11 @@ void ManagementApi::configChange(shared_ptr<HttpServer::Response> response, shar
 {
 ostringstream convert;
 string responsePayload;
-
-	(void)request;	// Unsused argument
+	
+	string payload = request->content.string();
+	m_serviceHandler->configChange(string("cfg"), payload);
+	Logger::getLogger()->info("%s:%d - request->content.string() = '%s'", __FUNCTION__, __LINE__, payload.c_str());
+	
 	convert << "{ \"message\" ; \"Config change accepted\" }";
 	responsePayload = convert.str();
 	respond(response, responsePayload);
