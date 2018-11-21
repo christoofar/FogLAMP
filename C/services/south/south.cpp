@@ -462,10 +462,11 @@ void SouthService::configChange(const string& categoryName, const string& payloa
 	items.Accept(writer);
 	string catName = document["category"].GetString();
 
-	Logger::getLogger()->error("SouthService::configChange: catName=%s, items=%s", catName.c_str(), buffer.GetString());
-	
+	Logger::getLogger()->info("SouthService::configChange: catName=%s, items=%s", catName.c_str(), buffer.GetString());
+
+	string buf(buffer.GetString());
 	if (catName == m_name)
-		southPlugin->reconfigure(buffer.GetString());
+		southPlugin->reconfigure(buf);
 	else // - bench1Advanced case
 		Logger::getLogger()->error("SouthService::configChange: bench1Advanced case");
 }
