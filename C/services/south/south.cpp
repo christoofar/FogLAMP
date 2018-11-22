@@ -169,6 +169,12 @@ void SouthService::start(string& coreAddress, unsigned short corePort)
 			sleep(2 * retryCount);
 		}
 
+		retryCount = 0;
+		while (m_mgtClient->registerCategory(m_name+"Advanced") == false && ++retryCount < 10)
+		{
+			sleep(2 * retryCount);
+		}
+
 		// Get a handle on the storage layer
 		ServiceRecord storageRecord("FogLAMP Storage");
 		if (!m_mgtClient->getService(storageRecord))
@@ -446,10 +452,10 @@ void SouthService::configChange(const string& categoryName, const string& payloa
 
 		if (!document.HasMember("items") || !document["items"].IsObject())
 		{
-			Logger::getLogger()->error("SouthService::configChange doesn't have \"items\" member: payload=%s", payload.c_str());
+			Logger::getLogger()->error("SouthService::configChange doesn't have (valid) \"items\" member: payload=%s", payload.c_str());
 			return;
 		}
-	} 
+	}
 	catch (exception& e)
 	{
 		Logger::getLogger()->error("SouthService::configChange exception: payload=%s", payload.c_str());

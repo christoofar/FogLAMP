@@ -70,7 +70,6 @@ Reading SouthPlugin::poll()
  */
 void SouthPlugin::reconfigure(string& newConfig)
 {
-	Logger::getLogger()->info("%s:%d", __FUNCTION__, __LINE__);
 	return this->pluginReconfigurePtr(instance, newConfig);
 }
 
