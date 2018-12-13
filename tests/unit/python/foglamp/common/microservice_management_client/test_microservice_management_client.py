@@ -646,6 +646,25 @@ class TestMicroserviceManagementClient:
             response_patch.assert_called_once_with()
         request_patch.assert_called_once_with(method='DELETE', url='/foglamp/service/category/TEST/blah/value')
 
+    def test_delete_configuration_category(self):
+        microservice_management_host = 'host1'
+        microservice_management_port = 1
+        ms_mgt_client = MicroserviceManagementClient(
+            microservice_management_host, microservice_management_port)
+        response_mock = MagicMock(type=HTTPResponse)
+        undecoded_data_mock = MagicMock()
+        response_mock.read.return_value = undecoded_data_mock
+        test_dict = {'value': ''}
+
+        undecoded_data_mock.decode.return_value = json.dumps(test_dict)
+        response_mock.status = 200
+        with patch.object(HTTPConnection, 'request') as request_patch:
+            with patch.object(HTTPConnection, 'getresponse', return_value=response_mock) as response_patch:
+                ret_value = ms_mgt_client.delete_configuration_category("TEST")
+                assert test_dict == ret_value
+            response_patch.assert_called_once_with()
+        request_patch.assert_called_once_with(method='DELETE', url='/foglamp/service/category/TEST')
+
     @pytest.mark.parametrize("status_code, host", [(450, 'Client'), (550, 'Server')])
     def test_delete_configuration_item_exception(self, status_code, host):
         microservice_management_host = 'host1'

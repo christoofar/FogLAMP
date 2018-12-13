@@ -311,6 +311,19 @@ class TestServer:
             assert result == json_response
         assert 1 == patch_del_category_item.call_count
 
+    async def test_delete_configuration_category(self, client):
+        async def async_mock():
+            return web.json_response("ok")
+
+        result = "ok"
+        with patch.object(conf_api, 'delete_category', return_value=async_mock()) as patch_del_category:
+            resp = await client.delete('/foglamp/service/category/{}'.format("test_category"))
+            assert 200 == resp.status
+            r = await resp.text()
+            json_response = json.loads(r)
+            assert result == json_response
+        assert 1 == patch_del_category.call_count
+
     ############################
     # Register Interest
     ############################

@@ -1210,6 +1210,11 @@ class Server:
         return res
 
     @classmethod
+    async def delete_configuration_category(cls, request):
+        res = await conf_api.delete_category(request)
+        return res
+
+    @classmethod
     async def get_configuration_item(cls, request):
         res = await conf_api.get_category_item(request)
         return res
