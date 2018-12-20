@@ -204,6 +204,7 @@ PLUGIN_INFORMATION *plugin_info_fn()
 			delete info->interface;
 			char *valStr = new char[6];
 			std::strcpy(valStr, "2.0.0");
+			info->interface = valStr;
 		}
 		
 		// Remove pReturn object
@@ -258,14 +259,15 @@ PLUGIN_HANDLE plugin_init_fn(ConfigCategory *config)
 	}
 	else
 	{
-		string *handleStr = new string(PyUnicode_AsUTF8(pReturn));
+		//string *handleStr = new string(PyUnicode_AsUTF8(pReturn));
+		//Py_INCREF(pReturn);
 
-		Logger::getLogger()->info("plugin_handle: plugin_init(): got handle from python plugin='%s'", handleStr->c_str());
+		Logger::getLogger()->info("plugin_handle: plugin_init(): got handle from python plugin='%p'", pReturn);
 		
 		// Remove pReturn object
-		Py_CLEAR(pReturn);
+		//Py_CLEAR(pReturn);
 
-		return (void *) handleStr;
+		return (void *) pReturn;
 	}
 }
 
@@ -295,10 +297,10 @@ vector<Reading *> * plugin_poll_fn(PLUGIN_HANDLE handle)
 		return NULL;
 	}
 
-	string *pluginHandleStr = (string *) handle;
+	//string *pluginHandleStr = (string *) handle;
 	
 	// Call Python method passing an object
-	PyObject* pReturn = PyObject_CallFunction(pFunc, "s", pluginHandleStr->c_str());
+	PyObject* pReturn = PyObject_CallFunction(pFunc, "O", handle);
 
 	Py_CLEAR(pFunc);
 
@@ -318,7 +320,7 @@ vector<Reading *> * plugin_poll_fn(PLUGIN_HANDLE handle)
 		//Logger::getLogger()->info("plugin_poll_fn: reading='%s'", rdng->toJSON().c_str());
 		
 		// Remove pReturn object
-		Py_CLEAR(pReturn);
+		//Py_CLEAR(pReturn);
 		return vec;
 	}
 }
@@ -329,7 +331,7 @@ vector<Reading *> * plugin_poll_fn(PLUGIN_HANDLE handle)
  */
 void plugin_reconfigure_fn(PLUGIN_HANDLE handle, const std::string& config)
 {
-	string *handleStr = (string *) handle;
+	//string *handleStr = (string *) handle;
 
 	PyObject* pFunc;
 	
@@ -355,7 +357,7 @@ void plugin_reconfigure_fn(PLUGIN_HANDLE handle, const std::string& config)
 	Logger::getLogger()->info("plugin_handle: plugin_reconfigure(): config->toJSON()='%s'", config.c_str());
 	
 	// Call Python method passing an object
-	PyObject* pReturn = PyObject_CallFunction(pFunc, "ss", handleStr->c_str(), config.c_str());
+	PyObject* pReturn = PyObject_CallFunction(pFunc, "Os", handle, config.c_str());
 
 	Py_CLEAR(pFunc);
 	Logger::getLogger()->info("plugin_handle: plugin_reconfigure(): pReturn=%p", pReturn);
@@ -370,11 +372,13 @@ void plugin_reconfigure_fn(PLUGIN_HANDLE handle, const std::string& config)
 	}
 	else
 	{
-		*handleStr = string(PyUnicode_AsUTF8(pReturn));
-		Logger::getLogger()->info("plugin_handle: plugin_reconfigure(): got updated handle from python plugin='%s'", handleStr->c_str());
+		//*handleStr = string(PyUnicode_AsUTF8(pReturn));
+		Py_CLEAR(handle);
+		handle = pReturn;
+		Logger::getLogger()->info("plugin_handle: plugin_reconfigure(): got updated handle from python plugin='%p'", handle);
 		
 		// Remove pReturn object
-		Py_CLEAR(pReturn);
+		//Py_CLEAR(pReturn);
 
 		return;
 	}
@@ -407,10 +411,10 @@ void plugin_shutdown_fn(PLUGIN_HANDLE handle)
 		return;
 	}
 
-	string *pluginHandleStr = (string *) handle;
+	//string *pluginHandleStr = (string *) handle;
 	
 	// Call Python method passing an object
-	PyObject* pReturn = PyObject_CallFunction(pFunc, "s", pluginHandleStr->c_str());
+	PyObject* pReturn = PyObject_CallFunction(pFunc, "O", handle);
 
 	Py_CLEAR(pFunc);
 
